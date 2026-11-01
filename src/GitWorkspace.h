@@ -1,0 +1,43 @@
+#pragma once
+
+#include <QStringList>
+#include <QWidget>
+
+class QStackedWidget;
+class QTabWidget;
+class RepositoryView;
+
+// Modo Git: un repositorio por pestaña.
+class GitWorkspace : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit GitWorkspace(QWidget *parent = nullptr);
+
+    // Abre (o activa) el repositorio que contiene `path`. Devuelve false si no es un repositorio.
+    bool openRepository(const QString &path, bool activate = true, QString *error = nullptr);
+    bool hasRepositoryFor(const QString &path) const;
+    QStringList repositoryPaths() const;
+    QString currentRepositoryPath() const;
+    void setCurrentRepository(const QString &path);
+    void closeCurrent();
+
+public Q_SLOTS:
+    void refreshCurrent();
+    void refreshRepositoryContaining(const QString &filePath);
+    void promptOpenRepository();
+
+Q_SIGNALS:
+    void openFileRequested(const QString &absolutePath);
+    void openFolderRequested(const QString &absolutePath);
+    void statusMessage(const QString &message);
+    void repositoriesChanged();
+
+private:
+    RepositoryView *viewAt(int index) const;
+    int indexOfPath(const QString &workdir) const;
+
+    QStackedWidget *m_stack;
+    QWidget *m_empty;
+    QTabWidget *m_tabs;
+};

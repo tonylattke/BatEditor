@@ -1,0 +1,11 @@
+{
+  "name": "batcode",
+  "version": "0.2.0",
+  "description": "Editor de texto con Git integrado (Qt 6 + libgit2)",
+  "dependencies": [
+    {
+      "name": "libgit2",
+      "default-features": false
+    }
+  ]
+}

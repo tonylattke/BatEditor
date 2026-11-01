@@ -1,0 +1,770 @@
+#include "MainWindow.h"
+
+#include "CodeEditor.h"
+#include "EditorTab.h"
+#include "FindBar.h"
+#include "GitWorkspace.h"
+#include "QuickOpenDialog.h"
+#include "Theme.h"
+
+#include <QAction>
+#include <QApplication>
+#include <QCloseEvent>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QFileSystemModel>
+#include <QGuiApplication>
+#include <QHeaderView>
+#include <QInputDialog>
+#include <QLabel>
+#include <QMenuBar>
+#include <QMessageBox>
+#include <QSettings>
+#include <QSortFilterProxyModel>
+#include <QSplitter>
+#include <QStackedWidget>
+#include <QStatusBar>
+#include <QTabBar>
+#include <QTabWidget>
+#include <QTextBlock>
+#include <QTreeView>
+#include <QVBoxLayout>
+
+// ---------------------------------------------------------------------------
+// Modelo del explorador: muestra la carpeta abierta como nodo raíz (como
+// "FOLDERS" en los editores de texto), oculta .git y ordena carpetas primero.
+// ---------------------------------------------------------------------------
+class FolderProxyModel : public QSortFilterProxyModel
+{
+public:
+    using QSortFilterProxyModel::QSortFilterProxyModel;
+
+    void setFolder(const QString &folder, const QString &container)
+    {
+        m_folder = QDir::cleanPath(folder);
+        m_container = QDir::cleanPath(container);
+        invalidate();
+    }
+
+protected:
+    bool filterAcceptsRow(int row, const QModelIndex &parent) const override
+    {
+        auto *fs = static_cast<QFileSystemModel *>(sourceModel());
+        const QModelIndex idx = fs->index(row, 0, parent);
+        if (idx.data().toString() == QLatin1String(".git"))
+            return false;
+        // En la carpeta contenedora solo se muestra la carpeta abierta
+        if (!m_container.isEmpty() && m_container != m_folder && samePath(fs->filePath(parent), m_container))
+            return samePath(fs->filePath(idx), m_folder);
+        return true;
+    }
+
+    bool lessThan(const QModelIndex &left, const QModelIndex &right) const override
+    {
+        auto *fs = static_cast<QFileSystemModel *>(sourceModel());
+        const bool ld = fs->isDir(left), rd = fs->isDir(right);
+        if (ld != rd)
+            return ld;
+        return QString::compare(left.data().toString(), right.data().toString(), Qt::CaseInsensitive) < 0;
+    }
+
+private:
+    static bool samePath(const QString &a, const QString &b)
+    {
+#ifdef Q_OS_WIN
+        return QDir::cleanPath(a).compare(b, Qt::CaseInsensitive) == 0;
+#else
+        return QDir::cleanPath(a) == b;
+#endif
+    }
+
+    QString m_folder;
+    QString m_container;
+};
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+{
+    QSettings settings;
+    m_fontSize = settings.value(QStringLiteral("editor/pointSize"), 10).toInt();
+    m_wordWrap = settings.value(QStringLiteral("editor/wordWrap"), false).toBool();
+
+    m_git = new GitWorkspace(this);
+    connect(m_git, &GitWorkspace::openFileRequested, this, [this](const QString &p) {
+        setMode(ModeSwitch::Editor);
+        openFile(p);
+    });
+    connect(m_git, &GitWorkspace::openFolderRequested, this, [this](const QString &p) {
+        openFolder(p);
+        setMode(ModeSwitch::Editor);
+    });
+    connect(m_git, &GitWorkspace::statusMessage, this, [this](const QString &m) {
+        statusBar()->showMessage(m, 4000);
+    });
+    connect(m_git, &GitWorkspace::repositoriesChanged, this, &MainWindow::updateWindowTitle);
+
+    m_pages = new QStackedWidget(this);
+    m_pages->addWidget(createEditorPage());
+    m_pages->addWidget(m_git);
+    setCentralWidget(m_pages);
+
+    m_positionLabel = new QLabel(this);
+    m_indentLabel = new QLabel(this);
+    m_languageLabel = new QLabel(this);
+    statusBar()->addWidget(m_positionLabel);
+    statusBar()->addPermanentWidget(m_indentLabel);
+    statusBar()->addPermanentWidget(m_languageLabel);
+    statusBar()->setSizeGripEnabled(false);
+
+    // Interruptor de modo en la esquina superior derecha de la barra de menús
+    m_modeSwitch = new ModeSwitch(this);
+    menuBar()->setCornerWidget(m_modeSwitch, Qt::TopRightCorner);
+    connect(m_modeSwitch, &ModeSwitch::modeChanged, this, [this](ModeSwitch::Mode m) { setMode(m); });
+
+    createMenus();
+
+    resize(1400, 860);
+    restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
+
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState s) {
+        if (s == Qt::ApplicationActive && m_pages->currentWidget() == m_git)
+            m_git->refreshCurrent();
+    });
+
+    updateWindowTitle();
+    updateStatus();
+}
+
+// ---------------------------------------------------------------------------
+// Construcción de la interfaz
+// ---------------------------------------------------------------------------
+QWidget *MainWindow::createEditorPage()
+{
+    // --- Explorador de carpetas ---
+    m_fsModel = new QFileSystemModel(this);
+    m_fsModel->setFilter(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden);
+    m_fsModel->setReadOnly(true);
+
+    m_fsProxy = new FolderProxyModel(this);
+    m_fsProxy->setSourceModel(m_fsModel);
+    m_fsProxy->setDynamicSortFilter(true);
+    m_fsProxy->setRecursiveFilteringEnabled(false);
+
+    m_tree = new QTreeView(this);
+    m_tree->setModel(m_fsProxy);
+    m_tree->setHeaderHidden(true);
+    m_tree->setSortingEnabled(true);
+    m_tree->sortByColumn(0, Qt::AscendingOrder);
+    for (int c = 1; c < 4; ++c)
+        m_tree->hideColumn(c);
+    m_tree->setAnimated(false);
+    m_tree->setIndentation(14);
+    m_tree->setUniformRowHeights(true);
+    // QFileSystemModel carga en segundo plano: al cargar la carpeta contenedora
+    // se expande la carpeta abierta
+    connect(m_fsModel, &QFileSystemModel::directoryLoaded, this, [this](const QString &loaded) {
+        if (m_rootPath.isEmpty() || QDir::cleanPath(loaded) != m_containerPath || m_containerPath == m_rootPath)
+            return;
+        const QModelIndex idx = m_fsProxy->mapFromSource(m_fsModel->index(m_rootPath));
+        if (idx.isValid())
+            m_tree->expand(idx);
+    });
+    connect(m_tree, &QTreeView::activated, this, [this](const QModelIndex &proxyIndex) {
+        const QModelIndex idx = m_fsProxy->mapToSource(proxyIndex);
+        if (!m_fsModel->isDir(idx))
+            openFile(m_fsModel->filePath(idx));
+    });
+
+    auto *header = new QLabel(tr("CARPETAS"), this);
+    header->setObjectName(QStringLiteral("sidebarHeader"));
+    auto *empty = new QLabel(tr("Archivo › Abrir carpeta…\n(Ctrl+Shift+O)"), this);
+    empty->setObjectName(QStringLiteral("sidebarEmpty"));
+    empty->setAlignment(Qt::AlignCenter);
+
+    m_sidebar = new QWidget(this);
+    m_sidebar->setObjectName(QStringLiteral("sidebar"));
+    auto *sl = new QVBoxLayout(m_sidebar);
+    sl->setContentsMargins(0, 0, 0, 0);
+    sl->setSpacing(0);
+    sl->addWidget(header);
+    sl->addWidget(m_tree, 1);
+    sl->addWidget(empty, 1);
+    m_tree->hide();
+
+    // --- Pestañas ---
+    m_tabs = new QTabWidget(this);
+    m_tabs->setTabsClosable(true);
+    m_tabs->setMovable(true);
+    m_tabs->setDocumentMode(true);
+    m_tabs->setUsesScrollButtons(true);
+    m_tabs->tabBar()->setExpanding(false);
+    m_tabs->tabBar()->setElideMode(Qt::ElideNone);
+    connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int i) { closeTab(i); });
+    connect(m_tabs, &QTabWidget::currentChanged, this, [this] {
+        updateWindowTitle();
+        updateStatus();
+    });
+    // Doble clic en la zona vacía de la barra de pestañas: archivo nuevo
+    connect(m_tabs->tabBar(), &QTabBar::tabBarDoubleClicked, this, [this](int index) {
+        if (index < 0)
+            newTab();
+    });
+
+    m_editorSplitter = new QSplitter(Qt::Horizontal, this);
+    m_editorSplitter->addWidget(m_sidebar);
+    m_editorSplitter->addWidget(m_tabs);
+    m_editorSplitter->setStretchFactor(0, 0);
+    m_editorSplitter->setStretchFactor(1, 1);
+    m_editorSplitter->setSizes({300, 1100});
+    m_editorSplitter->setHandleWidth(1);
+    m_editorSplitter->setChildrenCollapsible(false);
+    m_editorSplitter->restoreState(QSettings().value(QStringLiteral("window/editorSplitter")).toByteArray());
+    return m_editorSplitter;
+}
+
+void MainWindow::createMenus()
+{
+    auto onEditor = [this](auto fn) {
+        return [this, fn] {
+            if (CodeEditor *e = currentEditor())
+                fn(e);
+        };
+    };
+
+    // --- Archivo ------------------------------------------------------------
+    QMenu *file = menuBar()->addMenu(tr("&Archivo"));
+    file->addAction(tr("Nuevo archivo"), QKeySequence::New, this, [this] {
+        setMode(ModeSwitch::Editor);
+        newTab();
+    });
+    file->addAction(tr("Abrir archivo…"), QKeySequence::Open, this, [this] {
+        const QStringList files = QFileDialog::getOpenFileNames(this, tr("Abrir archivo"), m_rootPath);
+        if (!files.isEmpty())
+            setMode(ModeSwitch::Editor);
+        for (const QString &f : files)
+            openFile(f);
+    });
+    file->addAction(tr("Abrir carpeta…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O), this, [this] {
+        const QString dir = QFileDialog::getExistingDirectory(this, tr("Abrir carpeta"), m_rootPath);
+        if (!dir.isEmpty()) {
+            openFolder(dir);
+            setMode(ModeSwitch::Editor);
+        }
+    });
+    file->addSeparator();
+    file->addAction(tr("Guardar"), QKeySequence::Save, this, [this] {
+        if (EditorTab *t = currentTab())
+            saveTab(t);
+    });
+    file->addAction(tr("Guardar como…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S), this, [this] {
+        if (EditorTab *t = currentTab())
+            saveTabAs(t);
+    });
+    file->addAction(tr("Guardar todo"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_S), this, [this] {
+        for (int i = 0; i < m_tabs->count(); ++i)
+            if (EditorTab *t = tabAt(i); t && t->isModified())
+                saveTab(t);
+    });
+    file->addSeparator();
+    file->addAction(tr("Cerrar pestaña"), QKeySequence(Qt::CTRL | Qt::Key_W), this, [this] {
+        if (m_pages->currentWidget() == m_git)
+            m_git->closeCurrent();
+        else if (m_tabs->currentIndex() >= 0)
+            closeTab(m_tabs->currentIndex());
+    });
+    file->addAction(tr("Salir"), QKeySequence(Qt::CTRL | Qt::Key_Q), this, &QWidget::close);
+
+    // --- Editar -------------------------------------------------------------
+    QMenu *edit = menuBar()->addMenu(tr("&Editar"));
+    edit->addAction(tr("Deshacer"), QKeySequence::Undo, this, onEditor([](CodeEditor *e) { e->undo(); }));
+    edit->addAction(tr("Rehacer"), QKeySequence(Qt::CTRL | Qt::Key_Y), this, onEditor([](CodeEditor *e) { e->redo(); }));
+    edit->addSeparator();
+    edit->addAction(tr("Cortar"), QKeySequence::Cut, this, onEditor([](CodeEditor *e) { e->cutAll(); }));
+    edit->addAction(tr("Copiar"), QKeySequence::Copy, this, onEditor([](CodeEditor *e) { e->copyAll(); }));
+    edit->addAction(tr("Pegar"), QKeySequence::Paste, this, onEditor([](CodeEditor *e) { e->pasteAll(); }));
+    edit->addSeparator();
+    edit->addAction(tr("Comentar / descomentar líneas"), QKeySequence(Qt::CTRL | Qt::Key_Slash), this,
+                    onEditor([](CodeEditor *e) { e->toggleLineComment(); }));
+    edit->addAction(tr("Duplicar líneas"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_D), this,
+                    onEditor([](CodeEditor *e) { e->duplicateLines(); }));
+    edit->addAction(tr("Aumentar sangría"), QKeySequence(Qt::CTRL | Qt::Key_BracketRight), this,
+                    onEditor([](CodeEditor *e) { e->indentSelection(false); }));
+    edit->addAction(tr("Reducir sangría"), QKeySequence(Qt::CTRL | Qt::Key_BracketLeft), this,
+                    onEditor([](CodeEditor *e) { e->indentSelection(true); }));
+
+    // --- Selección ----------------------------------------------------------
+    QMenu *sel = menuBar()->addMenu(tr("&Selección"));
+    sel->addAction(tr("Seleccionar todo"), QKeySequence::SelectAll, this, onEditor([](CodeEditor *e) {
+        e->clearExtraCursors();
+        e->selectAll();
+    }));
+    sel->addSeparator();
+    sel->addAction(tr("Añadir siguiente coincidencia"), QKeySequence(Qt::CTRL | Qt::Key_D), this,
+                   onEditor([](CodeEditor *e) { e->addNextOccurrence(); }));
+    sel->addAction(tr("Seleccionar todas las coincidencias"), QKeySequence(Qt::ALT | Qt::Key_F3), this,
+                   onEditor([](CodeEditor *e) { e->selectAllOccurrencesOfSelection(); }));
+    sel->addAction(tr("Dividir selección en líneas"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_L), this,
+                   onEditor([](CodeEditor *e) { e->splitSelectionIntoLines(); }));
+    sel->addAction(tr("Añadir cursor arriba"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_Up), this,
+                   onEditor([](CodeEditor *e) { e->addCursorAbove(); }));
+    sel->addAction(tr("Añadir cursor abajo"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_Down), this,
+                   onEditor([](CodeEditor *e) { e->addCursorBelow(); }));
+    sel->addAction(tr("Volver a un solo cursor  (Esc)"), this,
+                   onEditor([](CodeEditor *e) { e->clearExtraCursors(); }));
+
+    // --- Buscar -------------------------------------------------------------
+    QMenu *find = menuBar()->addMenu(tr("&Buscar"));
+    find->addAction(tr("Buscar…"), QKeySequence::Find, this, [this] {
+        if (EditorTab *t = currentTab())
+            t->findBar()->showFind(false);
+    });
+    find->addAction(tr("Reemplazar…"), QKeySequence(Qt::CTRL | Qt::Key_H), this, [this] {
+        if (EditorTab *t = currentTab())
+            t->findBar()->showFind(true);
+    });
+    find->addAction(tr("Buscar siguiente"), QKeySequence(Qt::Key_F3), this,
+                    onEditor([](CodeEditor *e) { e->findNext(false); }));
+    find->addAction(tr("Buscar anterior"), QKeySequence(Qt::SHIFT | Qt::Key_F3), this,
+                    onEditor([](CodeEditor *e) { e->findNext(true); }));
+
+    // --- Ir -----------------------------------------------------------------
+    QMenu *go = menuBar()->addMenu(tr("&Ir"));
+    go->addAction(tr("Ir a archivo…"), QKeySequence(Qt::CTRL | Qt::Key_P), this, &MainWindow::quickOpen);
+    go->addAction(tr("Ir a línea…"), QKeySequence(Qt::CTRL | Qt::Key_G), this, &MainWindow::goToLine);
+    go->addSeparator();
+    go->addAction(tr("Pestaña siguiente"), QKeySequence(Qt::CTRL | Qt::Key_PageDown), this, [this] {
+        if (m_tabs->count() > 0)
+            m_tabs->setCurrentIndex((m_tabs->currentIndex() + 1) % m_tabs->count());
+    });
+    go->addAction(tr("Pestaña anterior"), QKeySequence(Qt::CTRL | Qt::Key_PageUp), this, [this] {
+        if (m_tabs->count() > 0)
+            m_tabs->setCurrentIndex((m_tabs->currentIndex() - 1 + m_tabs->count()) % m_tabs->count());
+    });
+
+    // --- Ver ----------------------------------------------------------------
+    QMenu *view = menuBar()->addMenu(tr("&Ver"));
+    view->addAction(tr("Modo editor"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), this,
+                    [this] { setMode(ModeSwitch::Editor); });
+    view->addAction(tr("Modo Git"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_G), this,
+                    [this] { setMode(ModeSwitch::Git); });
+    view->addSeparator();
+    QAction *sidebar = view->addAction(tr("Barra lateral"));
+    sidebar->setCheckable(true);
+    sidebar->setChecked(true);
+    sidebar->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_B));
+    connect(sidebar, &QAction::toggled, m_sidebar, &QWidget::setVisible);
+    QAction *wrap = view->addAction(tr("Ajuste de línea"));
+    wrap->setCheckable(true);
+    wrap->setChecked(m_wordWrap);
+    wrap->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Z));
+    connect(wrap, &QAction::toggled, this, [this](bool on) {
+        m_wordWrap = on;
+        for (int i = 0; i < m_tabs->count(); ++i)
+            if (EditorTab *t = tabAt(i))
+                t->editor()->setLineWrapMode(on ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
+    });
+    view->addAction(tr("Aumentar fuente"), QKeySequence(Qt::CTRL | Qt::Key_Equal), this, [this] { changeFontSize(+1); });
+    view->addAction(tr("Reducir fuente"), QKeySequence(Qt::CTRL | Qt::Key_Minus), this, [this] { changeFontSize(-1); });
+
+    // --- Git ----------------------------------------------------------------
+    QMenu *git = menuBar()->addMenu(tr("&Git"));
+    git->addAction(tr("Abrir repositorio…"), this, [this] {
+        setMode(ModeSwitch::Git);
+        m_git->promptOpenRepository();
+    });
+    git->addAction(tr("Actualizar"), QKeySequence(Qt::Key_F5), this, [this] { m_git->refreshCurrent(); });
+    git->addAction(tr("Cerrar repositorio"), this, [this] { m_git->closeCurrent(); });
+
+    // --- Ayuda --------------------------------------------------------------
+    QMenu *help = menuBar()->addMenu(tr("A&yuda"));
+    help->addAction(tr("Atajos de teclado"), QKeySequence(Qt::Key_F1), this, &MainWindow::showShortcuts);
+    help->addAction(tr("Acerca de BatCode"), this, [this] {
+        QMessageBox::about(this, tr("Acerca de BatCode"),
+                           tr("<h3>BatCode %1</h3>"
+                              "<p>Editor de texto con Git integrado.</p>"
+                              "<p>Construido con Qt %2 y libgit2.</p>")
+                               .arg(QStringLiteral(BATCODE_VERSION), QString::fromLatin1(qVersion())));
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Modos
+// ---------------------------------------------------------------------------
+void MainWindow::setMode(ModeSwitch::Mode mode)
+{
+    m_modeSwitch->setMode(mode); // sincroniza el interruptor (no reemite si no cambia)
+    const bool git = mode == ModeSwitch::Git;
+    QWidget *target = git ? static_cast<QWidget *>(m_git) : m_editorSplitter;
+    if (m_pages->currentWidget() != target) {
+        m_pages->setCurrentWidget(target);
+        if (git)
+            m_git->refreshCurrent();
+        else if (CodeEditor *e = currentEditor())
+            e->setFocus();
+    }
+    statusBar()->setVisible(!git);
+    updateWindowTitle();
+    updateStatus();
+}
+
+// ---------------------------------------------------------------------------
+// Pestañas
+// ---------------------------------------------------------------------------
+EditorTab *MainWindow::tabAt(int index) const
+{
+    return qobject_cast<EditorTab *>(m_tabs->widget(index));
+}
+
+EditorTab *MainWindow::currentTab() const
+{
+    if (m_pages && m_pages->currentWidget() == m_git)
+        return nullptr;
+    return qobject_cast<EditorTab *>(m_tabs->currentWidget());
+}
+
+CodeEditor *MainWindow::currentEditor() const
+{
+    EditorTab *t = currentTab();
+    return t ? t->editor() : nullptr;
+}
+
+EditorTab *MainWindow::newTab()
+{
+    auto *tab = new EditorTab(EditorTab::Kind::File, m_tabs);
+    tab->setUntitledIndex(++m_untitledCounter);
+    tab->editor()->setFont(Theme::editorFont(m_fontSize));
+    tab->editor()->setLineWrapMode(m_wordWrap ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
+
+    connect(tab, &EditorTab::titleChanged, this, [this, tab] {
+        updateTabTitle(tab);
+        updateWindowTitle();
+        updateStatus();
+    });
+    connect(tab->editor(), &CodeEditor::cursorsChanged, this, [this, tab] {
+        if (tab == currentTab())
+            updateStatus();
+    });
+
+    const int index = m_tabs->addTab(tab, tab->displayName());
+    m_tabs->setCurrentIndex(index);
+    updateTabTitle(tab);
+    tab->editor()->setFocus();
+    return tab;
+}
+
+void MainWindow::updateTabTitle(EditorTab *tab)
+{
+    const int index = m_tabs->indexOf(tab);
+    if (index < 0)
+        return;
+    QString title = tab->displayName();
+    if (tab->isModified())
+        title += QStringLiteral("  ●");
+    m_tabs->setTabText(index, title);
+    m_tabs->setTabToolTip(index, tab->filePath());
+}
+
+void MainWindow::updateWindowTitle()
+{
+    QString title = QStringLiteral("BatCode");
+    if (m_pages && m_pages->currentWidget() == m_git) {
+        const QString repo = m_git->currentRepositoryPath();
+        if (!repo.isEmpty())
+            title = QDir::toNativeSeparators(repo) + QStringLiteral(" — Git — ") + title;
+        setWindowTitle(title);
+        return;
+    }
+    if (!m_rootPath.isEmpty())
+        title = QFileInfo(m_rootPath).fileName() + QStringLiteral(" — ") + title;
+    if (EditorTab *t = currentTab()) {
+        const QString name = t->isUntitled() ? t->displayName() : QDir::toNativeSeparators(t->filePath());
+        title = name + (t->isModified() ? QStringLiteral(" ●") : QString()) + QStringLiteral(" — ") + title;
+    }
+    setWindowTitle(title);
+}
+
+void MainWindow::updateStatus()
+{
+    CodeEditor *e = currentEditor();
+    if (!e) {
+        m_positionLabel->clear();
+        m_indentLabel->clear();
+        m_languageLabel->clear();
+        return;
+    }
+    const QTextCursor c = e->textCursor();
+    QString pos = tr("Línea %1, Columna %2").arg(c.blockNumber() + 1).arg(c.positionInBlock() + 1);
+    if (e->cursorCount() > 1) {
+        pos += tr("  ·  %1 cursores").arg(e->cursorCount());
+    } else if (c.hasSelection()) {
+        const int n = c.selectionEnd() - c.selectionStart();
+        pos += n == 1 ? tr("  ·  1 carácter seleccionado") : tr("  ·  %1 caracteres seleccionados").arg(n);
+    }
+    m_positionLabel->setText(pos);
+    m_indentLabel->setText(tr("Espacios: %1").arg(e->indentWidth()));
+    m_languageLabel->setText(currentTab()->languageName());
+}
+
+bool MainWindow::openFile(const QString &path)
+{
+    const QString absolute = QFileInfo(path).absoluteFilePath();
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        EditorTab *t = tabAt(i);
+        if (t && t->filePath() == absolute) {
+            m_tabs->setCurrentIndex(i);
+            t->editor()->setFocus();
+            return true;
+        }
+    }
+
+    // Reutiliza una pestaña "sin título" vacía y sin cambios
+    EditorTab *tab = qobject_cast<EditorTab *>(m_tabs->currentWidget());
+    const bool reuse = tab && tab->isUntitled() && !tab->isModified() && tab->editor()->document()->isEmpty();
+    if (!reuse)
+        tab = newTab();
+
+    QString error;
+    if (!tab->load(absolute, &error)) {
+        if (!reuse) {
+            m_tabs->removeTab(m_tabs->indexOf(tab));
+            tab->deleteLater();
+        }
+        QMessageBox::warning(this, tr("Abrir archivo"), tr("No se pudo abrir %1:\n%2").arg(absolute, error));
+        return false;
+    }
+    updateTabTitle(tab);
+    updateWindowTitle();
+    updateStatus();
+    tab->editor()->setFocus();
+    return true;
+}
+
+void MainWindow::openFolder(const QString &path)
+{
+    const QString absolute = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+    if (!QFileInfo(absolute).isDir())
+        return;
+    m_rootPath = absolute;
+
+    // La carpeta se muestra como nodo raíz dentro de su carpeta contenedora
+    QDir parentDir(absolute);
+    const bool hasParent = parentDir.cdUp() && QDir::cleanPath(parentDir.absolutePath()) != absolute;
+    const QString container = hasParent ? QDir::cleanPath(parentDir.absolutePath()) : absolute;
+    m_fsProxy->setFolder(absolute, container);
+    const QModelIndex containerIdx = m_fsModel->setRootPath(container);
+    m_fsModel->index(absolute); // fuerza la carga del nodo
+    m_tree->setRootIndex(m_fsProxy->mapFromSource(containerIdx));
+    m_containerPath = container;
+    if (hasParent)
+        m_tree->expand(m_fsProxy->mapFromSource(m_fsModel->index(absolute)));
+
+    m_tree->show();
+    if (QWidget *empty = m_sidebar->findChild<QLabel *>(QStringLiteral("sidebarEmpty")))
+        empty->hide();
+
+    // Si la carpeta es (o está dentro de) un repositorio, se añade al modo Git
+    if (!m_git->hasRepositoryFor(absolute))
+        m_git->openRepository(absolute, false);
+    updateWindowTitle();
+}
+
+void MainWindow::openPaths(const QStringList &paths)
+{
+    for (const QString &p : paths) {
+        const QFileInfo info(p);
+        if (info.isDir())
+            openFolder(p);
+        else
+            openFile(p);
+    }
+}
+
+bool MainWindow::closeTab(int index)
+{
+    EditorTab *tab = tabAt(index);
+    if (!tab)
+        return true;
+    if (!maybeSave(tab))
+        return false;
+    m_tabs->removeTab(index);
+    tab->deleteLater();
+    updateWindowTitle();
+    updateStatus();
+    return true;
+}
+
+bool MainWindow::maybeSave(EditorTab *tab)
+{
+    if (!tab->isModified())
+        return true;
+    setMode(ModeSwitch::Editor);
+    m_tabs->setCurrentWidget(tab);
+    const auto answer = QMessageBox::question(
+        this, tr("Cambios sin guardar"),
+        tr("¿Guardar los cambios de «%1» antes de cerrar?").arg(tab->displayName()),
+        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
+    if (answer == QMessageBox::Cancel)
+        return false;
+    if (answer == QMessageBox::Save)
+        return saveTab(tab);
+    return true;
+}
+
+bool MainWindow::saveTab(EditorTab *tab)
+{
+    if (tab->isUntitled())
+        return saveTabAs(tab);
+    QString error;
+    if (!tab->save(&error)) {
+        QMessageBox::warning(this, tr("Guardar"), tr("No se pudo guardar:\n%1").arg(error));
+        return false;
+    }
+    statusBar()->showMessage(tr("Guardado %1").arg(QDir::toNativeSeparators(tab->filePath())), 2500);
+    m_git->refreshRepositoryContaining(tab->filePath());
+    return true;
+}
+
+bool MainWindow::saveTabAs(EditorTab *tab)
+{
+    const QString start = tab->isUntitled() ? m_rootPath : tab->filePath();
+    const QString path = QFileDialog::getSaveFileName(this, tr("Guardar como"), start);
+    if (path.isEmpty())
+        return false;
+    QString error;
+    if (!tab->saveAs(path, &error)) {
+        QMessageBox::warning(this, tr("Guardar"), tr("No se pudo guardar:\n%1").arg(error));
+        return false;
+    }
+    m_git->refreshRepositoryContaining(tab->filePath());
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Diálogos y utilidades
+// ---------------------------------------------------------------------------
+void MainWindow::quickOpen()
+{
+    QString root = m_rootPath;
+    if (root.isEmpty()) {
+        if (EditorTab *t = currentTab(); t && !t->isUntitled())
+            root = QFileInfo(t->filePath()).absolutePath();
+    }
+    if (root.isEmpty()) {
+        statusBar()->showMessage(tr("Abre una carpeta para usar «Ir a archivo»"), 3000);
+        return;
+    }
+    QuickOpenDialog dialog(root, this);
+    const QPoint topCenter = mapToGlobal(QPoint(width() / 2, 0));
+    dialog.move(topCenter.x() - dialog.minimumWidth() / 2, topCenter.y() + 60);
+    if (dialog.exec() == QDialog::Accepted && !dialog.selectedFile().isEmpty()) {
+        setMode(ModeSwitch::Editor);
+        openFile(dialog.selectedFile());
+    }
+}
+
+void MainWindow::goToLine()
+{
+    CodeEditor *e = currentEditor();
+    if (!e)
+        return;
+    bool ok = false;
+    const int line = QInputDialog::getInt(this, tr("Ir a línea"),
+                                          tr("Línea (1 – %1):").arg(e->blockCount()),
+                                          e->textCursor().blockNumber() + 1, 1, e->blockCount(), 1, &ok);
+    if (ok)
+        e->goToLine(line);
+}
+
+void MainWindow::changeFontSize(int delta)
+{
+    m_fontSize = qBound(6, m_fontSize + delta, 48);
+    const QFont f = Theme::editorFont(m_fontSize);
+    for (int i = 0; i < m_tabs->count(); ++i)
+        if (EditorTab *t = tabAt(i))
+            t->editor()->setFont(f);
+}
+
+void MainWindow::showShortcuts()
+{
+    const QString html = tr(R"(
+<h3>Atajos de BatCode</h3>
+<table cellspacing="4">
+<tr><td><b>Ctrl+Shift+E / Ctrl+Shift+G</b></td><td>Modo editor / Modo Git</td></tr>
+<tr><td><b>Ctrl+P</b></td><td>Ir a archivo</td></tr>
+<tr><td><b>Ctrl+G</b></td><td>Ir a línea</td></tr>
+<tr><td><b>Ctrl+F / Ctrl+H</b></td><td>Buscar / Reemplazar (Alt+Enter: un cursor por coincidencia)</td></tr>
+<tr><td><b>Ctrl+Clic</b></td><td>Añadir o quitar un cursor</td></tr>
+<tr><td><b>Ctrl+D</b></td><td>Seleccionar palabra / añadir siguiente coincidencia</td></tr>
+<tr><td><b>Alt+F3</b></td><td>Seleccionar todas las coincidencias</td></tr>
+<tr><td><b>Ctrl+Shift+L</b></td><td>Dividir selección en líneas</td></tr>
+<tr><td><b>Ctrl+Alt+↑ / ↓</b></td><td>Añadir cursor arriba / abajo</td></tr>
+<tr><td><b>Esc</b></td><td>Volver a un solo cursor</td></tr>
+<tr><td><b>Ctrl+/</b></td><td>Comentar / descomentar</td></tr>
+<tr><td><b>Ctrl+Shift+D</b></td><td>Duplicar líneas</td></tr>
+<tr><td><b>Tab / Shift+Tab</b></td><td>Sangrar / quitar sangría</td></tr>
+<tr><td><b>Ctrl+B</b></td><td>Mostrar / ocultar el explorador de carpetas</td></tr>
+<tr><td><b>F5</b></td><td>Actualizar el repositorio (modo Git)</td></tr>
+<tr><td><b>Ctrl+Enter</b></td><td>Commit (en el mensaje)</td></tr>
+<tr><td><b>Doble clic en una rama</b></td><td>Cambiar a esa rama</td></tr>
+</table>)");
+    QMessageBox box(this);
+    box.setWindowTitle(tr("Atajos de teclado"));
+    box.setTextFormat(Qt::RichText);
+    box.setText(html);
+    box.exec();
+}
+
+// ---------------------------------------------------------------------------
+// Sesión
+// ---------------------------------------------------------------------------
+void MainWindow::saveSession()
+{
+    QSettings settings;
+    settings.setValue(QStringLiteral("window/geometry"), saveGeometry());
+    settings.setValue(QStringLiteral("window/editorSplitter"), m_editorSplitter->saveState());
+    settings.setValue(QStringLiteral("editor/pointSize"), m_fontSize);
+    settings.setValue(QStringLiteral("editor/wordWrap"), m_wordWrap);
+    settings.setValue(QStringLiteral("session/folder"), m_rootPath);
+    settings.setValue(QStringLiteral("session/mode"), int(m_modeSwitch->mode()));
+    settings.setValue(QStringLiteral("session/repositories"), m_git->repositoryPaths());
+    settings.setValue(QStringLiteral("session/currentRepository"), m_git->currentRepositoryPath());
+    QStringList files;
+    for (int i = 0; i < m_tabs->count(); ++i)
+        if (EditorTab *t = tabAt(i); t && !t->isUntitled())
+            files << t->filePath();
+    settings.setValue(QStringLiteral("session/files"), files);
+    if (auto *t = qobject_cast<EditorTab *>(m_tabs->currentWidget()))
+        settings.setValue(QStringLiteral("session/current"), t->filePath());
+}
+
+void MainWindow::restoreSession()
+{
+    QSettings settings;
+    for (const QString &repo : settings.value(QStringLiteral("session/repositories")).toStringList())
+        if (QFileInfo(repo).isDir())
+            m_git->openRepository(repo, false);
+    const QString folder = settings.value(QStringLiteral("session/folder")).toString();
+    if (!folder.isEmpty() && QFileInfo(folder).isDir())
+        openFolder(folder);
+    for (const QString &f : settings.value(QStringLiteral("session/files")).toStringList())
+        if (QFileInfo::exists(f))
+            openFile(f);
+    const QString current = settings.value(QStringLiteral("session/current")).toString();
+    if (!current.isEmpty() && QFileInfo::exists(current))
+        openFile(current);
+    m_git->setCurrentRepository(settings.value(QStringLiteral("session/currentRepository")).toString());
+    setMode(ModeSwitch::Mode(settings.value(QStringLiteral("session/mode"), 0).toInt()));
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        EditorTab *t = tabAt(i);
+        if (t && !maybeSave(t)) {
+            event->ignore();
+            return;
+        }
+    }
+    saveSession();
+    event->accept();
+}

@@ -1,0 +1,76 @@
+#pragma once
+
+#include "GitRepository.h"
+
+#include <QHash>
+#include <QPointer>
+#include <QWidget>
+
+class FileDiffWidget;
+class QLabel;
+class QListWidget;
+class QListWidgetItem;
+class QScrollArea;
+class QTabWidget;
+class QToolButton;
+class QTreeWidget;
+class QTreeWidgetItem;
+
+// Un repositorio abierto en el modo Git. Tres secciones:
+//   1) Ubicaciones: ramas, remotos, etiquetas, stashes, submódulos, worktrees
+//   2) Commits / Archivos del commit seleccionado (o de los cambios actuales)
+//   3) Detalle: mensaje, autor, padres y diff de cada archivo (o el formulario de commit)
+class RepositoryView : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit RepositoryView(QWidget *parent = nullptr);
+
+    bool open(const QString &path, QString *error = nullptr);
+    QString path() const { return m_repo.workdir(); }
+    QString title() const { return m_repo.displayName(); }
+    GitRepository &repository() { return m_repo; }
+
+public Q_SLOTS:
+    void reload();
+
+Q_SIGNALS:
+    void openFileRequested(const QString &absolutePath);
+    void openFolderRequested(const QString &absolutePath);
+    void statusMessage(const QString &message);
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
+private:
+    void buildUi();
+    void reloadLocations();
+    void reloadCommits();
+    void showSelection();
+    void showWorkingDirectory();
+    void showCommit(const QString &commitId);
+    void selectCommit(const QString &commitId);
+    void onLocationClicked(QTreeWidgetItem *item);
+    void onLocationDoubleClicked(QTreeWidgetItem *item);
+    void showLocationMenu(const QPoint &pos);
+    void checkout(const QString &branch);
+    void scrollToFile(const QString &key);
+    void setDetailWidget(QWidget *content);
+    void report(bool ok, const QString &action);
+    void doCommit();
+
+    GitRepository m_repo;
+
+    QWidget *m_sidebar = nullptr;
+    QLabel *m_branchLabel = nullptr;
+    QTreeWidget *m_locations = nullptr;
+    QTabWidget *m_middleTabs = nullptr;
+    QListWidget *m_commits = nullptr;
+    QListWidget *m_files = nullptr;
+    QScrollArea *m_detail = nullptr;
+
+    bool m_workingSelected = true;       // "cambios actuales" seleccionado
+    QString m_selectedCommit;            // si no, el commit mostrado
+    QString m_commitDraft;               // mensaje de commit en edición
+    QHash<QString, QPointer<FileDiffWidget>> m_fileWidgets;
+};
