@@ -108,9 +108,17 @@ superior con la rama actual, «Abrir en el editor» y «Actualizar» (`F5`), y *
    - Para un commit: título, descripción, autor, fecha, SHA completo y padres (con enlace al
      padre), y el diff de cada archivo con `+añadidas −borradas`. Cada archivo se puede plegar.
    - Para los cambios actuales: mensaje del commit, tu identidad de Git y el botón **Commit**
-     (o `Ctrl+Enter`), más las secciones **Preparados**, **Sin preparar** y **Sin seguimiento**.
+     (o `Ctrl+Enter`), más las secciones **Archivos modificados**, **Archivos sin seguimiento** y
+     **Archivos preparados** (en el mismo orden que Sublime Merge).
      Cada archivo tiene sus acciones (Preparar, Quitar, Descartar, Abrir) y cada sección tiene
      «Preparar todo» o «Quitar todo».
+   - Las secciones son **listas desplegables**: un clic en la cabecera (▼/▶), en el detalle o en la
+     pestaña *Archivos*, la pliega o despliega. El **clic derecho en la cabecera** ofrece:
+     - Modificados: preparar N archivos, descartar sus cambios, guardar parche…
+     - Sin seguimiento: preparar N archivos, borrar N archivos (a la papelera).
+     - Preparados: quitar N archivos de preparados, guardar parche…
+     - Plegar/desplegar esta sección, desplegar todo y plegar todo.
+     «Guardar parche…» escribe `git diff [--cached] --binary` en un `.patch` para `git apply`.
 
 **Selección múltiple y menú contextual.** En la pestaña *Archivos* puedes seleccionar varios
 archivos con `Ctrl+clic` y `Shift+clic`, incluso de secciones distintas. `Shift+Enter` prepara o

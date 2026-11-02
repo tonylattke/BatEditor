@@ -13,6 +13,7 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QListWidget>
+#include <QFileDialog>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QMessageBox>
@@ -74,6 +75,7 @@ enum Roles {
     RefKindRole,  // Ubicaciones: tipo de referencia
     FilePathRole, // Archivos: ruta relativa
     SectionRole,  // Archivos: staged / unstaged / untracked / commit
+    SectionHeaderRole, // cabecera de sección (id) en la pestaña Archivos
     CodeRole,     // Archivos: código de estado
 };
 
@@ -217,6 +219,47 @@ QWidget *sectionTitle(const QString &text, int count, QWidget *parent, QHBoxLayo
     return w;
 }
 
+// Cabecera de una sección de cambios: ▼/▶ + título + número; clic pliega o
+// despliega y clic derecho abre el menú de la sección (como en Sublime Merge).
+class SectionHeader : public QWidget
+{
+public:
+    SectionHeader(const QString &text, int count, bool collapsed, QWidget *parent)
+        : QWidget(parent)
+    {
+        setAutoFillBackground(true);
+        QPalette p = palette();
+        p.setColor(QPalette::Window, Theme::colors().backgroundAlt);
+        setPalette(p);
+        setCursor(Qt::PointingHandCursor);
+        setObjectName(QStringLiteral("sectionHeader"));
+        layout = new QHBoxLayout(this);
+        layout->setContentsMargins(10, 6, 10, 6);
+        auto *title = new QLabel(QStringLiteral("<span style='color:%1'>%2</span>&nbsp;&nbsp;<b>%3</b>"
+                                                "&nbsp;&nbsp;<span style='color:%1'>(%4)</span>")
+                                     .arg(Theme::colors().muted.name(),
+                                          collapsed ? QStringLiteral("&#9654;") : QStringLiteral("&#9660;"),
+                                          text.toUpper().toHtmlEscaped())
+                                     .arg(count),
+                                 this);
+        title->setTextFormat(Qt::RichText);
+        layout->addWidget(title, 1);
+    }
+
+    QHBoxLayout *layout = nullptr;
+    std::function<void()> onToggle;
+    std::function<void(const QPoint &)> onMenu;
+
+protected:
+    void mousePressEvent(QMouseEvent *e) override
+    {
+        if (e->button() == Qt::LeftButton && onToggle)
+            onToggle();
+        else if (e->button() == Qt::RightButton && onMenu)
+            onMenu(e->globalPosition().toPoint());
+    }
+};
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -338,7 +381,13 @@ void RepositoryView::buildUi()
     m_files->setSelectionMode(QAbstractItemView::ExtendedSelection); // Ctrl+clic y Shift+clic
     m_files->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_files, &QListWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
-        if (m_files->itemAt(pos) && !selectedFiles().isEmpty())
+        QListWidgetItem *item = m_files->itemAt(pos);
+        const QString section = item ? item->data(SectionHeaderRole).toString() : QString();
+        if (!section.isEmpty()) {
+            showSectionMenu(section, m_files->viewport()->mapToGlobal(pos));
+            return;
+        }
+        if (item && !selectedFiles().isEmpty())
             showFileMenu(m_files->viewport()->mapToGlobal(pos));
     });
     for (int key : {int(Qt::Key_Return), int(Qt::Key_Enter)}) {
@@ -347,6 +396,11 @@ void RepositoryView::buildUi()
         connect(sc, &QShortcut::activated, this, &RepositoryView::toggleStageSelected);
     }
     connect(m_files, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) {
+        const QString section = item->data(SectionHeaderRole).toString();
+        if (!section.isEmpty()) {
+            toggleSection(section);
+            return;
+        }
         const QString key = item->data(KeyRole).toString();
         if (!key.isEmpty())
             scrollToFile(key);
@@ -363,11 +417,16 @@ void RepositoryView::buildUi()
     m_detail->setWidgetResizable(true);
     m_detail->setFrameShape(QFrame::NoFrame);
     m_detail->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_detailPane = new QWidget(this);
+    auto *paneLayout = new QVBoxLayout(m_detailPane);
+    paneLayout->setContentsMargins(0, 0, 0, 0);
+    paneLayout->setSpacing(0);
+    paneLayout->addWidget(m_detail, 1);
 
     auto *splitter = new QSplitter(Qt::Horizontal, this);
     splitter->addWidget(m_sidebar);
     splitter->addWidget(m_middleTabs);
-    splitter->addWidget(m_detail);
+    splitter->addWidget(m_detailPane);
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 0);
     splitter->setStretchFactor(2, 1);
@@ -546,9 +605,18 @@ void RepositoryView::showSelection()
         showCommit(m_selectedCommit);
 }
 
-void RepositoryView::setDetailWidget(QWidget *content)
+void RepositoryView::setDetailWidget(QWidget *content, QWidget *header)
 {
     m_fileWidgets.clear();
+    if (m_detailHeader) {
+        m_detailHeader->hide();
+        m_detailHeader->deleteLater();
+        m_detailHeader = nullptr;
+    }
+    if (header) {
+        static_cast<QVBoxLayout *>(m_detailPane->layout())->insertWidget(0, header);
+        m_detailHeader = header;
+    }
     // El contenido anterior se borra después: puede que estemos dentro de una
     // señal de uno de sus botones (Preparar, Quitar, Commit...)
     if (QWidget *old = m_detail->takeWidget()) {
@@ -589,10 +657,16 @@ void RepositoryView::showWorkingDirectory()
     for (const auto &f : unstagedAll)
         (f.code == QLatin1Char('?') ? untracked : unstaged) << f;
 
-    // --- Formulario de commit ---
-    auto *form = new QWidget(content);
+    // --- Formulario de commit (fijo arriba: no se desplaza con la lista) ---
+    auto *form = new QWidget;
+    form->setAutoFillBackground(true);
+    {
+        QPalette fp = form->palette();
+        fp.setColor(QPalette::Window, c.background);
+        form->setPalette(fp);
+    }
     auto *fl = new QVBoxLayout(form);
-    fl->setContentsMargins(12, 12, 12, 12);
+    fl->setContentsMargins(12, 12, 12, 0);
     auto *message = new QPlainTextEdit(form);
     message->setObjectName(QStringLiteral("commitMessage"));
     message->setPlaceholderText(tr("Mensaje del commit"));
@@ -621,7 +695,11 @@ void RepositoryView::showWorkingDirectory()
     row->addWidget(commitBtn);
     fl->addWidget(message);
     fl->addLayout(row);
-    layout->addWidget(form);
+    auto *formLine = new QFrame(form);   // separación con la lista de archivos
+    formLine->setFrameShape(QFrame::HLine);
+    formLine->setFixedHeight(1);
+    formLine->setStyleSheet(QStringLiteral("background:%1; border:none;").arg(c.border.name()));
+    fl->addWidget(formLine);
 
     // --- Lista de archivos (pestaña "Archivos") ---
     // Se conserva la selección por ruta (un archivo preparado sigue seleccionado en su nueva sección)
@@ -631,9 +709,16 @@ void RepositoryView::showWorkingDirectory()
             previouslySelected.insert(f.path);
     m_files->clear();
     m_filesAreWorking = true;
-    auto addFileHeader = [this](const QString &text) {
-        auto *h = new QListWidgetItem(text.toUpper(), m_files);
-        h->setFlags(Qt::NoItemFlags);
+    m_sectionFiles.clear();
+    auto addFileHeader = [this](const QString &id, const QString &text, int count) {
+        const bool collapsed = m_collapsedSections.contains(id);
+        auto *h = new QListWidgetItem(QStringLiteral("%1  %2 (%3)")
+                                          .arg(collapsed ? QChar(0x25B6) : QChar(0x25BC))
+                                          .arg(text.toUpper())
+                                          .arg(count),
+                                      m_files);
+        h->setFlags(Qt::ItemIsEnabled);   // no seleccionable: clic = plegar/desplegar
+        h->setData(SectionHeaderRole, id);
         QFont f = h->font();
         f.setBold(true);
         h->setFont(f);
@@ -645,16 +730,24 @@ void RepositoryView::showWorkingDirectory()
                           const QString &bulkText, std::function<bool()> bulkAction) {
         if (files.isEmpty())
             return;
-        QHBoxLayout *actions = nullptr;
-        layout->addWidget(sectionTitle(title, int(files.size()), content, &actions));
-        auto *bulk = new QToolButton(content);
+        QList<FileRef> &refs = m_sectionFiles[id];
+        for (const auto &f : files)
+            refs.append({f.path, id, f.code});
+        const bool collapsed = m_collapsedSections.contains(id);
+        auto *header = new SectionHeader(title, int(files.size()), collapsed, content);
+        header->onToggle = [this, id] { toggleSection(id); };
+        header->onMenu = [this, id](const QPoint &pos) { showSectionMenu(id, pos); };
+        layout->addWidget(header);
+        auto *bulk = new QToolButton(header);
         bulk->setText(bulkText);
-        actions->addWidget(bulk);
+        header->layout->addWidget(bulk);
         connect(bulk, &QToolButton::clicked, this, [this, bulkAction, bulkText] {
             report(bulkAction(), bulkText.toLower());
             reload();
         });
-        addFileHeader(title);
+        addFileHeader(id, title, int(files.size()));
+        if (collapsed)
+            return;   // plegada: ni diffs ni archivos en la lista
 
         for (const auto &f : files) {
             auto *w = new FileDiffWidget(f, content);
@@ -703,19 +796,20 @@ void RepositoryView::showWorkingDirectory()
             });
         }
     };
-    addSection(QStringLiteral("staged"), tr("Preparados"), staged, tr("Quitar todo"), [this] { return m_repo.unstageAll(); });
-    addSection(QStringLiteral("unstaged"), tr("Sin preparar"), unstaged, tr("Preparar todo"), [this, unstaged] {
+    // Mismo orden que Sublime Merge: modificados, sin seguimiento y preparados
+    addSection(QStringLiteral("unstaged"), tr("Archivos modificados"), unstaged, tr("Preparar todo"), [this, unstaged] {
         for (const auto &f : unstaged)
             if (!m_repo.stage(f.path))
                 return false;
         return true;
     });
-    addSection(QStringLiteral("untracked"), tr("Sin seguimiento"), untracked, tr("Preparar todo"), [this, untracked] {
+    addSection(QStringLiteral("untracked"), tr("Archivos sin seguimiento"), untracked, tr("Preparar todo"), [this, untracked] {
         for (const auto &f : untracked)
             if (!m_repo.stage(f.path))
                 return false;
         return true;
     });
+    addSection(QStringLiteral("staged"), tr("Archivos preparados"), staged, tr("Quitar todo"), [this] { return m_repo.unstageAll(); });
 
     if (staged.isEmpty() && unstagedAll.isEmpty()) {
         auto *clean = mutedLabel(tr("No hay cambios en el directorio de trabajo."), content);
@@ -725,9 +819,8 @@ void RepositoryView::showWorkingDirectory()
     }
     layout->addStretch(1);
 
-    setDetailWidget(content);
+    setDetailWidget(content, form);
     m_fileWidgets = widgets;
-    Q_UNUSED(c);
     QTimer::singleShot(0, this, [this, scroll] { m_detail->verticalScrollBar()->setValue(scroll); });
 }
 
@@ -1369,6 +1462,25 @@ namespace {
 const char *kPullSetting = "git/pullCommand";
 const char *kPushSetting = "git/pushCommand";
 
+QString gitExecutable()
+{
+    QString git = QStandardPaths::findExecutable(QStringLiteral("git"));
+#ifdef Q_OS_WIN
+    if (git.isEmpty()) {
+        const QStringList candidates = {
+            QStringLiteral("C:/Program Files/Git/cmd/git.exe"),
+            QStringLiteral("C:/Program Files (x86)/Git/cmd/git.exe"),
+            QDir::homePath() + QStringLiteral("/AppData/Local/Programs/Git/cmd/git.exe"),
+            QDir::homePath() + QStringLiteral("/scoop/shims/git.exe"),
+        };
+        for (const QString &c : candidates)
+            if (QFileInfo::exists(c))
+                return c;
+    }
+#endif
+    return git;
+}
+
 // Última línea útil de la salida de git (las de progreso terminan en \r)
 QString lastLine(const QString &output)
 {
@@ -1487,7 +1599,7 @@ void RepositoryView::runGit(const QStringList &args, const QString &title)
         QMessageBox::information(this, tr("Git"), tr("Espera a que termine «%1».").arg(m_runningTitle));
         return;
     }
-    const QString git = GitRepository::gitExecutable();
+    const QString git = gitExecutable();
     if (git.isEmpty()) {
         QMessageBox::warning(this, tr("Git"),
                              tr("No se encontró el programa git.\n\n"
@@ -1869,4 +1981,85 @@ void RepositoryView::showCommandPalette()
     };
     auto *palette = new GitCommandPalette(tr("Git"), tr("Buscar un comando…"), items, this);
     palette->popup(this);
+}
+
+// ---------------------------------------------------------------------------
+// Secciones de cambios: plegar / desplegar y menú contextual
+// ---------------------------------------------------------------------------
+void RepositoryView::toggleSection(const QString &id)
+{
+    if (!m_collapsedSections.remove(id))
+        m_collapsedSections.insert(id);
+    showWorkingDirectory();
+}
+
+void RepositoryView::setAllSectionsCollapsed(bool collapsed)
+{
+    m_collapsedSections.clear();
+    if (collapsed)
+        for (auto it = m_sectionFiles.cbegin(); it != m_sectionFiles.cend(); ++it)
+            m_collapsedSections.insert(it.key());
+    showWorkingDirectory();
+}
+
+void RepositoryView::showSectionMenu(const QString &id, const QPoint &globalPos)
+{
+    const QList<FileRef> files = m_sectionFiles.value(id);
+    if (files.isEmpty())
+        return;
+    const int n = int(files.size());
+    QMenu menu(this);
+    if (id == QLatin1String("unstaged")) {
+        menu.addAction(plural(n, tr("Preparar 1 archivo modificado"), tr("Preparar %1 archivos modificados")),
+                       this, [this, files] { stageFiles(files, true); });
+        menu.addAction(plural(n, tr("Descartar cambios de 1 archivo…"), tr("Descartar cambios de %1 archivos…")),
+                       this, [this, files] { discardFiles(files); });
+        menu.addSeparator();
+        menu.addAction(tr("Guardar parche…"), this, [this] { savePatch(false); });
+    } else if (id == QLatin1String("untracked")) {
+        menu.addAction(plural(n, tr("Preparar 1 archivo sin seguimiento"), tr("Preparar %1 archivos sin seguimiento")),
+                       this, [this, files] { stageFiles(files, true); });
+        menu.addAction(plural(n, tr("Borrar 1 archivo sin seguimiento…"), tr("Borrar %1 archivos sin seguimiento…")),
+                       this, [this, files] { deleteFiles(files); });
+    } else if (id == QLatin1String("staged")) {
+        menu.addAction(plural(n, tr("Quitar 1 archivo de preparados"), tr("Quitar %1 archivos de preparados")),
+                       this, [this, files] { stageFiles(files, false); });
+        menu.addSeparator();
+        menu.addAction(tr("Guardar parche…"), this, [this] { savePatch(true); });
+    }
+    menu.addSeparator();
+    const bool collapsed = m_collapsedSections.contains(id);
+    menu.addAction(collapsed ? tr("Desplegar") : tr("Plegar"), this, [this, id] { toggleSection(id); });
+    menu.addAction(tr("Desplegar todo"), this, [this] { setAllSectionsCollapsed(false); });
+    menu.addAction(tr("Plegar todo"), this, [this] { setAllSectionsCollapsed(true); });
+    menu.exec(globalPos);
+}
+
+// Guarda en un archivo .patch el diff de los cambios sin preparar o preparados
+// (git diff [--cached] --binary), listo para "git apply".
+void RepositoryView::savePatch(bool staged)
+{
+    const QString suggested = QDir(m_repo.workdir()).absoluteFilePath(
+        QFileInfo(QDir::cleanPath(m_repo.workdir())).fileName() + (staged ? QStringLiteral("-staged.patch")
+                                                                          : QStringLiteral(".patch")));
+    const QString path = QFileDialog::getSaveFileName(this, tr("Guardar parche"), suggested,
+                                                      tr("Parches (*.patch *.diff);;Todos los archivos (*)"));
+    if (path.isEmpty())
+        return;
+    QProcess git;
+    git.setWorkingDirectory(m_repo.workdir());
+    QStringList args{QStringLiteral("diff"), QStringLiteral("--binary")};
+    if (staged)
+        args << QStringLiteral("--cached");
+    git.start(QStringLiteral("git"), args);
+    const bool ran = git.waitForFinished(60000) && git.exitStatus() == QProcess::NormalExit && git.exitCode() == 0;
+    QFile out(path);
+    if (!ran || !out.open(QIODevice::WriteOnly)) {
+        QMessageBox::warning(this, tr("Guardar parche"),
+                             tr("No se pudo guardar el parche.\n\n%1")
+                                 .arg(ran ? out.errorString() : QString::fromLocal8Bit(git.readAllStandardError())));
+        return;
+    }
+    out.write(git.readAllStandardOutput());
+    Q_EMIT statusMessage(tr("Parche guardado en %1").arg(QDir::toNativeSeparators(path)));
 }

@@ -4,6 +4,7 @@
 #include <QDirIterator>
 #include <QKeyEvent>
 #include <QLineEdit>
+#include <QTimer>
 #include <QListWidget>
 #include <QSet>
 #include <QVBoxLayout>
@@ -37,6 +38,10 @@ QuickOpenDialog::QuickOpenDialog(const QString &rootPath, QWidget *parent)
     setMinimumSize(620, 380);
     m_input->setPlaceholderText(tr("Ir a archivo…"));
     m_input->installEventFilter(this);
+    // El campo de búsqueda es el único que recibe el teclado: ↑/↓/Enter se
+    // reenvían a la lista desde eventFilter, así se puede escribir de inmediato.
+    m_list->setFocusPolicy(Qt::NoFocus);
+    setFocusProxy(m_input);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(8, 8, 8, 8);
@@ -48,6 +53,22 @@ QuickOpenDialog::QuickOpenDialog(const QString &rootPath, QWidget *parent)
 
     scanFiles();
     refilter();
+}
+
+// En Windows una ventana Qt::Popup no siempre se activa sola: se fuerza la
+// activación y el foco en el campo de búsqueda al mostrarse (y otra vez cuando
+// el sistema termina de mostrarla).
+void QuickOpenDialog::showEvent(QShowEvent *event)
+{
+    QDialog::showEvent(event);
+    auto focusInput = [this] {
+        raise();
+        activateWindow();
+        m_input->setFocus(Qt::PopupFocusReason);
+        m_input->selectAll();
+    };
+    focusInput();
+    QTimer::singleShot(0, this, focusInput);
 }
 
 void QuickOpenDialog::scanFiles()

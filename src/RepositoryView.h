@@ -3,6 +3,7 @@
 #include "GitRepository.h"
 
 #include <QHash>
+#include <QSet>
 #include <QPointer>
 #include <QWidget>
 
@@ -70,6 +71,11 @@ private:
     void stageFiles(const QList<FileRef> &files, bool stage);
     void discardFiles(const QList<FileRef> &files);
     void deleteFiles(const QList<FileRef> &files);
+    // Secciones de cambios (modificados / sin seguimiento / preparados): plegar y menú
+    void toggleSection(const QString &id);
+    void setAllSectionsCollapsed(bool collapsed);
+    void showSectionMenu(const QString &id, const QPoint &globalPos);
+    void savePatch(bool staged);
     void showFileHistory(const QString &path);
     void showBlame(const QString &path);
     void openContainingFolder(const QString &path);
@@ -97,7 +103,8 @@ private:
     void showLocationMenu(const QPoint &pos);
     void checkout(const QString &branch);
     void scrollToFile(const QString &key);
-    void setDetailWidget(QWidget *content);
+    // header: parte fija sobre el detalle (no se desplaza con el scroll), p. ej. el commit
+    void setDetailWidget(QWidget *content, QWidget *header = nullptr);
     void report(bool ok, const QString &action);
     void doCommit();
 
@@ -110,12 +117,16 @@ private:
     QListWidget *m_commits = nullptr;
     QListWidget *m_files = nullptr;
     QScrollArea *m_detail = nullptr;
+    QWidget *m_detailPane = nullptr;     // cabecera fija + m_detail
+    QWidget *m_detailHeader = nullptr;
 
     bool m_workingSelected = true;       // "cambios actuales" seleccionado
     QString m_selectedCommit;            // si no, el commit mostrado
     QString m_commitDraft;               // mensaje de commit en edición
     bool m_filesAreWorking = false;      // la pestaña "Archivos" muestra los cambios actuales
     QHash<QString, QPointer<FileDiffWidget>> m_fileWidgets;
+    QSet<QString> m_collapsedSections;   // ids de las secciones plegadas
+    QHash<QString, QList<FileRef>> m_sectionFiles;  // archivos de cada sección mostrada
 
     // Operaciones remotas
     QProcess *m_process = nullptr;
