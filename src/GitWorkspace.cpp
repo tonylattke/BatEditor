@@ -199,3 +199,8 @@ void GitWorkspace::promptOpenRepository()
         QMessageBox::warning(this, tr("Abrir repositorio"),
                              tr("%1 no es un repositorio Git.\n\n%2").arg(QDir::toNativeSeparators(dir), error));
 }
+
+RepositoryView *GitWorkspace::currentView() const
+{
+    return viewAt(m_tabs->currentIndex());
+}

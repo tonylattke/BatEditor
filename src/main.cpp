@@ -23,12 +23,14 @@ int main(int argc, char *argv[])
     Theme::apply(app);
 
     MainWindow window;
+    // La ventana se muestra antes de abrir nada: si una ruta falla, el aviso
+    // aparece sobre ella en lugar de quedar como un diálogo suelto
+    window.show();
     const QStringList paths = parser.positionalArguments();
     if (paths.isEmpty())
         window.restoreSession();
     else
         window.openPaths(paths);
-    window.show();
 
     return app.exec();
 }

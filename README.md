@@ -85,6 +85,27 @@ archivo en el detalle, ofrece:
 | Abrir carpeta contenedora… | Abre el Explorador con el archivo seleccionado |
 | Copiar ruta del archivo / Copiar ruta relativa | Copia las rutas al portapapeles |
 
+**Operaciones remotas.** A la derecha de la barra del repositorio están **⇄ Merge**,
+**⟲ Fetch**, **↓ Pull ▾**, **↑ Push ▾** y **⋯**. Pull y Push muestran cuántos commits hay por bajar
+y por subir. Los botones ▾ abren una paleta con las opciones; se navega con ↑/↓, se filtra
+escribiendo, Enter ejecuta y Esc cierra:
+
+| Acción | Atajo | Opciones |
+|---|---|---|
+| Pull | `Ctrl+Alt+P` | — (usa la última opción elegida) |
+| Opciones de pull | `Ctrl+Alt+Shift+P` | `pull`, `pull --ff-only`, `pull --rebase`, `pull --rebase --autostash`, `fetch`, `fetch --tags`, `fetch --prune`, `fetch --all` |
+| Push | `Ctrl+Alt+U` | Si la rama aún no existe en el remoto, ofrece publicarla (`--set-upstream`) |
+| Opciones de push | `Ctrl+Alt+Shift+U` | `push`, `push --set-upstream <remoto> <rama>`, `push --force-with-lease` (pide confirmación), `push --follow-tags`, `push --tags` |
+| Fetch | `Ctrl+Alt+F` | — |
+| Merge | `Ctrl+Alt+M` | Eliges la rama (local o remota) y luego `merge`, `merge --no-ff`, `merge --ff-only` o `merge --squash` |
+| Comandos de Git | `Ctrl+Shift+P` | Lo anterior más cambiar de rama, crear rama, `stash`, `stash pop`, `merge --abort`, `rebase --continue`, `rebase --abort` y `fetch --all --prune` |
+
+El clic derecho en las ubicaciones también permite fusionar una rama en la actual y hacer fetch
+de un remoto concreto. Estas operaciones usan **tu programa `git`**, así que funcionan con tus
+credenciales de siempre (Git Credential Manager, claves SSH). Se ejecutan en segundo plano sin
+abrir consolas, con una barra que muestra el progreso. Si algo falla, la barra se queda en rojo
+con la línea del error y el botón «Ver salida».
+
 La sesión recuerda el modo, la carpeta, los archivos y los repositorios abiertos.
 
 ## Compilar y ejecutar
@@ -159,6 +180,7 @@ src/
   GitWorkspace.*           Modo Git: una pestaña por repositorio
   RepositoryView.*         Las tres secciones de un repositorio (ubicaciones, commits, detalle)
   FileDiffWidget.*         Bloque plegable con el diff de un archivo y sus acciones
+  GitCommandPalette.*      Paleta emergente de comandos (opciones de pull, push, merge…)
   Theme.*                  Paleta oscura y estilos
 ```
 
@@ -167,7 +189,7 @@ src/
 - Preparar cambios por bloque o por línea (*hunks*) desde la vista de diff.
 - Diff lado a lado, números de línea en el diff y vista de *blame*.
 - Grafo real de ramas en la lista de commits.
-- Crear, fusionar y borrar ramas; `fetch`, `pull` y `push` (libgit2 con HTTPS/SSH).
+- Borrar y renombrar ramas; rebase interactivo; resolver conflictos dentro de BatCode.
 - Búsqueda en el historial.
-- Paleta de comandos (`Ctrl+Shift+P`) y minimapa.
+- Paleta de comandos para el modo editor y minimapa.
 - Resaltado con tree-sitter, temas configurables y ajustes en JSON.

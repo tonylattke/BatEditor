@@ -9,6 +9,7 @@
 class FileDiffWidget;
 class QLabel;
 class QListWidget;
+class QProcess;
 class QListWidgetItem;
 class QScrollArea;
 class QTabWidget;
@@ -31,13 +32,25 @@ public:
     QString title() const { return m_repo.displayName(); }
     GitRepository &repository() { return m_repo; }
 
+    // --- Operaciones remotas (usan el programa git instalado) ---
+    bool isBusy() const { return m_process != nullptr; }
+    void runGit(const QStringList &args, const QString &title = QString());
+
 public Q_SLOTS:
     void reload();
+    void pull();               // usa la opción de pull elegida por última vez
+    void push();
+    void fetch();
+    void showPullOptions();
+    void showPushOptions();
+    void showMergePalette();
+    void showCommandPalette();
 
 Q_SIGNALS:
     void openFileRequested(const QString &absolutePath);
     void openFolderRequested(const QString &absolutePath);
     void statusMessage(const QString &message);
+    void commandFinished(bool ok, const QString &output);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -62,6 +75,15 @@ private:
     void openContainingFolder(const QString &path);
     QWidget *backHeader(const QString &title, QWidget *parent);
     QString absolutePath(const QString &path) const;
+
+    QWidget *buildRemoteButtons(QWidget *parent);
+    void updateRemoteButtons();
+    void showMergeOptions(const QString &branch);
+    void showSwitchPalette();
+    void createBranch();
+    void finishCommand(bool ok);
+    void showCommandOutput();
+    QStringList mergeableBranches(QStringList *descriptions) const;
 
     void buildUi();
     void reloadLocations();
@@ -94,4 +116,20 @@ private:
     QString m_commitDraft;               // mensaje de commit en edición
     bool m_filesAreWorking = false;      // la pestaña "Archivos" muestra los cambios actuales
     QHash<QString, QPointer<FileDiffWidget>> m_fileWidgets;
+
+    // Operaciones remotas
+    QProcess *m_process = nullptr;
+    QString m_runningTitle;
+    QString m_commandOutput;
+    int m_runCounter = 0;
+    QWidget *m_outputBar = nullptr;
+    QLabel *m_outputLabel = nullptr;
+    QToolButton *m_outputDetails = nullptr;
+    QToolButton *m_pullButton = nullptr;
+    QToolButton *m_pullMenuButton = nullptr;
+    QToolButton *m_pushButton = nullptr;
+    QToolButton *m_pushMenuButton = nullptr;
+    QToolButton *m_fetchButton = nullptr;
+    QToolButton *m_mergeButton = nullptr;
+    QToolButton *m_moreButton = nullptr;
 };

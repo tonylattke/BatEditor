@@ -952,3 +952,68 @@ QList<GitRepository::BlameLine> GitRepository::blame(const QString &path) const
     git_blame_free(base);
     return result;
 }
+
+// ---------------------------------------------------------------------------
+// Rama remota (upstream), adelantos/atrasos y remotos
+// ---------------------------------------------------------------------------
+bool GitRepository::isHeadDetached() const
+{
+    return m_repo && git_repository_head_detached(m_repo) == 1;
+}
+
+QString GitRepository::upstreamName() const
+{
+    if (!m_repo || isHeadDetached())
+        return QString();
+    git_reference *headRaw = nullptr;
+    if (git_repository_head(&headRaw, m_repo) != 0)
+        return QString();
+    ReferencePtr head(headRaw);
+    git_reference *upRaw = nullptr;
+    if (git_branch_upstream(&upRaw, head.get()) != 0)
+        return QString();
+    ReferencePtr upstream(upRaw);
+    const char *name = nullptr;
+    if (git_branch_name(&name, upstream.get()) != 0 || !name)
+        return QString();
+    return QString::fromUtf8(name);
+}
+
+bool GitRepository::aheadBehind(int *ahead, int *behind) const
+{
+    *ahead = *behind = 0;
+    if (!m_repo || isHeadDetached())
+        return false;
+    git_reference *headRaw = nullptr;
+    if (git_repository_head(&headRaw, m_repo) != 0)
+        return false;
+    ReferencePtr head(headRaw);
+    git_reference *upRaw = nullptr;
+    if (git_branch_upstream(&upRaw, head.get()) != 0)
+        return false;
+    ReferencePtr upstream(upRaw);
+    const git_oid *local = git_reference_target(head.get());
+    const git_oid *remote = git_reference_target(upstream.get());
+    if (!local || !remote)
+        return false;
+    size_t a = 0, b = 0;
+    if (git_graph_ahead_behind(&a, &b, m_repo, local, remote) != 0)
+        return false;
+    *ahead = int(a);
+    *behind = int(b);
+    return true;
+}
+
+QStringList GitRepository::remoteNames() const
+{
+    QStringList names;
+    if (!m_repo)
+        return names;
+    git_strarray remotes = {nullptr, 0};
+    if (git_remote_list(&remotes, m_repo) == 0) {
+        for (size_t i = 0; i < remotes.count; ++i)
+            names << QString::fromUtf8(remotes.strings[i]);
+        git_strarray_dispose(&remotes);
+    }
+    return names;
+}

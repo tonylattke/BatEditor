@@ -5,6 +5,7 @@
 #include "FindBar.h"
 #include "GitWorkspace.h"
 #include "QuickOpenDialog.h"
+#include "RepositoryView.h"
 #include "Theme.h"
 
 #include <QAction>
@@ -392,6 +393,29 @@ void MainWindow::createMenus()
     });
     addMenuAction(git, tr("Actualizar"), QKeySequence(Qt::Key_F5), this, [this] { m_git->refreshCurrent(); });
     git->addAction(tr("Cerrar repositorio"), this, [this] { m_git->closeCurrent(); });
+    git->addSeparator();
+    // Operaciones remotas sobre el repositorio de la pestaña actual (cambian al modo Git)
+    auto onRepo = [this](void (RepositoryView::*method)()) {
+        return [this, method] {
+            setMode(ModeSwitch::Git);
+            if (RepositoryView *view = m_git->currentView())
+                (view->*method)();
+            else
+                statusBar()->showMessage(tr("Abre un repositorio en el modo Git"), 3000);
+        };
+    };
+    addMenuAction(git, tr("Pull"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_P), this, onRepo(&RepositoryView::pull));
+    addMenuAction(git, tr("Opciones de pull…"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::SHIFT | Qt::Key_P), this,
+                  onRepo(&RepositoryView::showPullOptions));
+    addMenuAction(git, tr("Push"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_U), this, onRepo(&RepositoryView::push));
+    addMenuAction(git, tr("Opciones de push…"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::SHIFT | Qt::Key_U), this,
+                  onRepo(&RepositoryView::showPushOptions));
+    addMenuAction(git, tr("Fetch"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_F), this, onRepo(&RepositoryView::fetch));
+    addMenuAction(git, tr("Merge…"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_M), this,
+                  onRepo(&RepositoryView::showMergePalette));
+    git->addSeparator();
+    addMenuAction(git, tr("Comandos de Git…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P), this,
+                  onRepo(&RepositoryView::showCommandPalette));
 
     // --- Ayuda --------------------------------------------------------------
     QMenu *help = menuBar()->addMenu(tr("A&yuda"));
@@ -722,6 +746,11 @@ void MainWindow::showShortcuts()
 <tr><td><b>Tab / Shift+Tab</b></td><td>Sangrar / quitar sangría</td></tr>
 <tr><td><b>Ctrl+B</b></td><td>Mostrar / ocultar el explorador de carpetas</td></tr>
 <tr><td><b>F5</b></td><td>Actualizar el repositorio (modo Git)</td></tr>
+<tr><td><b>Ctrl+Alt+P / Ctrl+Alt+Shift+P</b></td><td>Pull / opciones de pull</td></tr>
+<tr><td><b>Ctrl+Alt+U / Ctrl+Alt+Shift+U</b></td><td>Push / opciones de push</td></tr>
+<tr><td><b>Ctrl+Alt+F</b></td><td>Fetch</td></tr>
+<tr><td><b>Ctrl+Alt+M</b></td><td>Merge (elegir rama)</td></tr>
+<tr><td><b>Ctrl+Shift+P</b></td><td>Comandos de Git (stash, rebase, crear rama…)</td></tr>
 <tr><td><b>Ctrl+Enter</b></td><td>Commit (en el mensaje)</td></tr>
 <tr><td><b>Doble clic en una rama</b></td><td>Cambiar a esa rama</td></tr>
 </table>)");

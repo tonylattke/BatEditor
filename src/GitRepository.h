@@ -100,6 +100,10 @@ public:
     QString resolveCommit(const QString &revspec) const;
     QList<CommitInfo> fileHistory(const QString &path, int maxCount = 500) const;
     QList<BlameLine> blame(const QString &path) const;   // usa el contenido actual del archivo
+    QString upstreamName() const;                        // "origin/master" o vacío
+    bool aheadBehind(int *ahead, int *behind) const;     // respecto a la rama remota
+    QStringList remoteNames() const;
+    bool isHeadDetached() const;
 
     // --- Acciones ---
     bool stage(const QString &path);

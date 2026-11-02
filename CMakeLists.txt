@@ -79,6 +79,7 @@ set(BATCODE_SOURCES
     src/FileDiffWidget.h       src/FileDiffWidget.cpp
     src/RepositoryView.h       src/RepositoryView.cpp
     src/GitWorkspace.h         src/GitWorkspace.cpp
+    src/GitCommandPalette.h    src/GitCommandPalette.cpp
     src/ModeSwitch.h           src/ModeSwitch.cpp
     src/MainWindow.h           src/MainWindow.cpp
 )

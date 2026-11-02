@@ -1,6 +1,7 @@
 #include "RepositoryView.h"
 
 #include "FileDiffWidget.h"
+#include "GitCommandPalette.h"
 #include "Theme.h"
 
 #include <QApplication>
@@ -24,6 +25,13 @@
 #include <QShortcut>
 #include <QSyntaxHighlighter>
 #include <QDesktopServices>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QInputDialog>
+#include <QProcessEnvironment>
+#include <QRegularExpression>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
@@ -35,6 +43,16 @@
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h> // CREATE_NO_WINDOW
+#endif
 
 #include <functional>
 
@@ -252,6 +270,28 @@ void RepositoryView::buildUi()
     tl->addStretch(1);
     tl->addWidget(openInEditor);
     tl->addWidget(refresh);
+    tl->addSpacing(12);
+    tl->addWidget(buildRemoteButtons(toolbar));
+
+    // --- Barra de progreso / resultado de las operaciones remotas ---
+    m_outputBar = new QWidget(this);
+    m_outputBar->setAutoFillBackground(true);
+    m_outputLabel = new QLabel(m_outputBar);
+    m_outputLabel->setTextFormat(Qt::RichText);
+    m_outputLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_outputDetails = new QToolButton(m_outputBar);
+    m_outputDetails->setText(tr("Ver salida"));
+    connect(m_outputDetails, &QToolButton::clicked, this, &RepositoryView::showCommandOutput);
+    auto *closeOutput = new QToolButton(m_outputBar);
+    closeOutput->setText(QStringLiteral("✕"));
+    closeOutput->setAutoRaise(true);
+    connect(closeOutput, &QToolButton::clicked, m_outputBar, &QWidget::hide);
+    auto *ol = new QHBoxLayout(m_outputBar);
+    ol->setContentsMargins(12, 5, 8, 5);
+    ol->addWidget(m_outputLabel, 1);
+    ol->addWidget(m_outputDetails);
+    ol->addWidget(closeOutput);
+    m_outputBar->hide();
 
     // --- 1) Ubicaciones -------------------------------------------------------
     m_locations = new QTreeWidget(this);
@@ -339,6 +379,7 @@ void RepositoryView::buildUi()
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(toolbar);
+    layout->addWidget(m_outputBar);
     layout->addWidget(splitter, 1);
 }
 
@@ -364,6 +405,7 @@ void RepositoryView::reload()
     m_branchLabel->setToolTip(m_repo.workdir());
     reloadLocations();
     reloadCommits();
+    updateRemoteButtons();
 }
 
 void RepositoryView::reloadLocations()
@@ -871,8 +913,20 @@ void RepositoryView::showLocationMenu(const QPoint &pos)
     const QString name = item->data(0, IdRole).toString();
     const QString target = item->data(0, TargetRole).toString();
     QMenu menu(this);
+    const QString current = m_repo.branchName();
     if (kind == RefBranch)
         menu.addAction(tr("Cambiar a «%1»").arg(name), this, [this, name] { checkout(name); });
+    if ((kind == RefBranch || kind == RefRemoteBranch) && name != current && !m_repo.isHeadDetached())
+        menu.addAction(tr("Fusionar «%1» en «%2»…").arg(name, current), this, [this, name] { showMergeOptions(name); });
+    if (kind == RefOther && item->parent()->data(0, IdRole).toString() == QLatin1String("remotes")) {
+        menu.addAction(tr("Fetch de «%1»").arg(name), this,
+                       [this, name] { runGit({QStringLiteral("fetch"), QStringLiteral("--progress"), name}); });
+        menu.addAction(tr("Fetch de «%1» con --prune").arg(name), this, [this, name] {
+            runGit({QStringLiteral("fetch"), QStringLiteral("--progress"), QStringLiteral("--prune"), name});
+        });
+    }
+    if (!menu.isEmpty())
+        menu.addSeparator();
     if (!target.isEmpty()) {
         menu.addAction(tr("Mostrar commit"), this, [this, target] { selectCommit(target); });
         menu.addAction(tr("Copiar SHA"), this, [target] { QApplication::clipboard()->setText(target); });
@@ -1305,4 +1359,533 @@ void RepositoryView::showBlame(const QString &path)
     view->setPlainText(out.join(QLatin1Char('\n')));
     layout->addWidget(view, 1);
     setDetailWidget(content);
+}
+
+// ---------------------------------------------------------------------------
+// Operaciones remotas: pull, push, fetch, merge y otros comandos
+// ---------------------------------------------------------------------------
+namespace {
+
+const char *kPullSetting = "git/pullCommand";
+const char *kPushSetting = "git/pushCommand";
+
+QString gitExecutable()
+{
+    QString git = QStandardPaths::findExecutable(QStringLiteral("git"));
+#ifdef Q_OS_WIN
+    if (git.isEmpty()) {
+        const QStringList candidates = {
+            QStringLiteral("C:/Program Files/Git/cmd/git.exe"),
+            QStringLiteral("C:/Program Files (x86)/Git/cmd/git.exe"),
+            QDir::homePath() + QStringLiteral("/AppData/Local/Programs/Git/cmd/git.exe"),
+            QDir::homePath() + QStringLiteral("/scoop/shims/git.exe"),
+        };
+        for (const QString &c : candidates)
+            if (QFileInfo::exists(c))
+                return c;
+    }
+#endif
+    return git;
+}
+
+// Última línea útil de la salida de git (las de progreso terminan en \r)
+QString lastLine(const QString &output)
+{
+    const QStringList lines = output.split(QRegularExpression(QStringLiteral("[\r\n]")), Qt::SkipEmptyParts);
+    for (int i = lines.size() - 1; i >= 0; --i) {
+        const QString l = lines.at(i).trimmed();
+        if (!l.isEmpty() && !l.startsWith(QLatin1String("$ ")))
+            return l;
+    }
+    return QString();
+}
+
+QToolButton *toolbarButton(const QString &text, const QString &tip, QWidget *parent)
+{
+    auto *b = new QToolButton(parent);
+    b->setText(text);
+    b->setToolTip(tip);
+    b->setCursor(Qt::PointingHandCursor);
+    return b;
+}
+
+// Para el aviso de error: la primera línea fatal:/error:/CONFLICT/rechazo, o la última
+QString errorLine(const QString &output)
+{
+    const QStringList lines = output.split(QRegularExpression(QStringLiteral("[\r\n]")), Qt::SkipEmptyParts);
+    for (const QString &raw : lines) {
+        const QString l = raw.trimmed();
+        if (l.startsWith(QLatin1String("fatal:")) || l.startsWith(QLatin1String("error:"))
+            || l.startsWith(QLatin1String("CONFLICT")) || l.contains(QLatin1String("[rejected]")))
+            return l;
+    }
+    return lastLine(output);
+}
+
+} // namespace
+
+QWidget *RepositoryView::buildRemoteButtons(QWidget *parent)
+{
+    auto *box = new QWidget(parent);
+    auto *l = new QHBoxLayout(box);
+    l->setContentsMargins(0, 0, 0, 0);
+    l->setSpacing(0);
+
+    const QString joinedLeft = QStringLiteral("QToolButton { border-top-right-radius:0; border-bottom-right-radius:0; }");
+    const QString joinedRight = QStringLiteral(
+        "QToolButton { border-top-left-radius:0; border-bottom-left-radius:0; border-left:none; padding:4px 5px; }");
+
+    m_mergeButton = toolbarButton(tr("⇄ Merge"), tr("Fusionar otra rama en la actual (Ctrl+Alt+M)"), box);
+    m_fetchButton = toolbarButton(tr("⟲ Fetch"), tr("Descargar cambios sin tocar tu rama (Ctrl+Alt+F)"), box);
+    m_pullButton = toolbarButton(tr("↓ Pull"), QString(), box);
+    m_pullMenuButton = toolbarButton(QStringLiteral("▾"), tr("Opciones de pull (Ctrl+Alt+Shift+P)"), box);
+    m_pushButton = toolbarButton(tr("↑ Push"), QString(), box);
+    m_pushMenuButton = toolbarButton(QStringLiteral("▾"), tr("Opciones de push (Ctrl+Alt+Shift+U)"), box);
+    m_moreButton = toolbarButton(QStringLiteral("⋯"), tr("Más comandos de Git (Ctrl+Shift+P)"), box);
+    m_pullButton->setStyleSheet(joinedLeft);
+    m_pushButton->setStyleSheet(joinedLeft);
+    m_pullMenuButton->setStyleSheet(joinedRight);
+    m_pushMenuButton->setStyleSheet(joinedRight);
+
+    connect(m_mergeButton, &QToolButton::clicked, this, &RepositoryView::showMergePalette);
+    connect(m_fetchButton, &QToolButton::clicked, this, &RepositoryView::fetch);
+    connect(m_pullButton, &QToolButton::clicked, this, &RepositoryView::pull);
+    connect(m_pullMenuButton, &QToolButton::clicked, this, &RepositoryView::showPullOptions);
+    connect(m_pushButton, &QToolButton::clicked, this, &RepositoryView::push);
+    connect(m_pushMenuButton, &QToolButton::clicked, this, &RepositoryView::showPushOptions);
+    connect(m_moreButton, &QToolButton::clicked, this, &RepositoryView::showCommandPalette);
+
+    l->addWidget(m_mergeButton);
+    l->addSpacing(6);
+    l->addWidget(m_fetchButton);
+    l->addSpacing(6);
+    l->addWidget(m_pullButton);
+    l->addWidget(m_pullMenuButton);
+    l->addSpacing(6);
+    l->addWidget(m_pushButton);
+    l->addWidget(m_pushMenuButton);
+    l->addSpacing(6);
+    l->addWidget(m_moreButton);
+    return box;
+}
+
+void RepositoryView::updateRemoteButtons()
+{
+    if (!m_pullButton)
+        return;
+    const bool busy = isBusy();
+    const bool hasRemotes = !m_repo.remoteNames().isEmpty();
+    int ahead = 0, behind = 0;
+    const bool tracking = m_repo.aheadBehind(&ahead, &behind);
+
+    m_pullButton->setText(behind > 0 ? tr("↓ Pull  %1").arg(behind) : tr("↓ Pull"));
+    m_pushButton->setText(ahead > 0 ? tr("↑ Push  %1").arg(ahead) : tr("↑ Push"));
+    const QSettings settings;
+    const QString pullCmd = settings.value(QLatin1String(kPullSetting), QStringLiteral("pull")).toString();
+    const QString pushCmd = settings.value(QLatin1String(kPushSetting), QStringLiteral("push")).toString();
+    QString state;
+    if (tracking)
+        state = tr("\nRama remota: %1 · %2 por bajar, %3 por subir").arg(m_repo.upstreamName()).arg(behind).arg(ahead);
+    else if (hasRemotes)
+        state = tr("\nEsta rama aún no tiene rama remota");
+    m_pullButton->setToolTip(tr("git %1 (Ctrl+Alt+P)").arg(pullCmd) + state);
+    m_pushButton->setToolTip(tr("git %1 (Ctrl+Alt+U)").arg(pushCmd) + state);
+
+    for (QToolButton *b : {m_pullButton, m_pullMenuButton, m_pushButton, m_pushMenuButton, m_fetchButton})
+        b->setEnabled(!busy && hasRemotes);
+    m_mergeButton->setEnabled(!busy);
+    m_moreButton->setEnabled(!busy);
+    // Que el texto (con los contadores) nunca se recorte
+    for (QToolButton *b : {m_mergeButton, m_fetchButton, m_pullButton, m_pushButton})
+        b->setMinimumWidth(b->sizeHint().width());
+}
+
+void RepositoryView::runGit(const QStringList &args, const QString &title)
+{
+    if (m_process) {
+        QMessageBox::information(this, tr("Git"), tr("Espera a que termine «%1».").arg(m_runningTitle));
+        return;
+    }
+    const QString git = gitExecutable();
+    if (git.isEmpty()) {
+        QMessageBox::warning(this, tr("Git"),
+                             tr("No se encontró el programa git.\n\n"
+                                "Las operaciones remotas (pull, push, fetch…) usan tu instalación de Git "
+                                "y sus credenciales. Instálalo desde https://git-scm.com y reinicia BatCode."));
+        return;
+    }
+
+    const int run = ++m_runCounter;
+    m_runningTitle = title.isEmpty() ? QStringLiteral("git ") + args.join(QLatin1Char(' ')) : title;
+    m_commandOutput = QStringLiteral("$ git %1\n").arg(args.join(QLatin1Char(' ')));
+
+    m_process = new QProcess(this);
+    m_process->setProgram(git);
+    m_process->setArguments(args);
+    m_process->setWorkingDirectory(m_repo.workdir());
+    m_process->setProcessChannelMode(QProcess::MergedChannels);
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert(QStringLiteral("GIT_TERMINAL_PROMPT"), QStringLiteral("0")); // nunca esperar una contraseña en consola
+    env.insert(QStringLiteral("GIT_MERGE_AUTOEDIT"), QStringLiteral("no"));  // merge sin abrir un editor
+    env.insert(QStringLiteral("GIT_EDITOR"), QStringLiteral(":"));            // rebase --continue, etc. sin editor
+    m_process->setProcessEnvironment(env);
+#ifdef Q_OS_WIN
+    // Sin ventana de consola
+    m_process->setCreateProcessArgumentsModifier(
+        [](QProcess::CreateProcessArguments *a) { a->flags |= CREATE_NO_WINDOW; });
+#endif
+
+    const Theme::Colors &c = Theme::colors();
+    QPalette p = m_outputBar->palette();
+    p.setColor(QPalette::Window, c.panel);
+    m_outputBar->setPalette(p);
+    m_outputLabel->setText(QStringLiteral("<span style='color:%1'>⟳</span>&nbsp; <b>%2</b>…")
+                               .arg(c.accent.name(), m_runningTitle.toHtmlEscaped()));
+    m_outputDetails->setVisible(false);
+    m_outputBar->show();
+
+    connect(m_process, &QProcess::readyRead, this, [this] {
+        m_commandOutput += QString::fromUtf8(m_process->readAll());
+        const QString progress = lastLine(m_commandOutput);
+        m_outputLabel->setText(QStringLiteral("<span style='color:%1'>⟳</span>&nbsp; <b>%2</b> &nbsp;<span style='color:%3'>%4</span>")
+                                   .arg(Theme::colors().accent.name(), m_runningTitle.toHtmlEscaped(),
+                                        Theme::colors().muted.name(), progress.toHtmlEscaped()));
+    });
+    connect(m_process, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
+        m_commandOutput += QString::fromUtf8(m_process->readAll());
+        finishCommand(status == QProcess::NormalExit && code == 0);
+    });
+    connect(m_process, &QProcess::errorOccurred, this, [this, run](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart || run != m_runCounter || !m_process)
+            return;
+        m_commandOutput += tr("No se pudo ejecutar git: %1\n").arg(m_process->errorString());
+        finishCommand(false);
+    });
+
+    updateRemoteButtons();
+    m_process->start();
+}
+
+void RepositoryView::finishCommand(bool ok)
+{
+    if (!m_process)
+        return;
+    m_process->deleteLater();
+    m_process = nullptr;
+
+    const Theme::Colors &c = Theme::colors();
+    const QString summary = ok ? lastLine(m_commandOutput) : errorLine(m_commandOutput);
+    QPalette p = m_outputBar->palette();
+    p.setColor(QPalette::Window, ok ? c.addedBg : c.removedBg);
+    m_outputBar->setPalette(p);
+    m_outputLabel->setText(QStringLiteral("<span style='color:%1'>%2</span>&nbsp; <b>%3</b> &nbsp;%4")
+                               .arg((ok ? c.added : c.removed).name(), ok ? QStringLiteral("✓") : QStringLiteral("✗"),
+                                    m_runningTitle.toHtmlEscaped(),
+                                    (ok ? (summary.isEmpty() ? tr("completado") : summary)
+                                        : (summary.isEmpty() ? tr("falló") : summary))
+                                        .toHtmlEscaped()));
+    m_outputDetails->setVisible(true);
+    m_outputBar->show();
+    if (ok) {
+        // El aviso de éxito desaparece solo; el de error se queda hasta cerrarlo
+        const int run = m_runCounter;
+        QTimer::singleShot(8000, this, [this, run] {
+            if (run == m_runCounter && !m_process)
+                m_outputBar->hide();
+        });
+    }
+    Q_EMIT statusMessage(ok ? tr("%1: completado").arg(m_runningTitle) : tr("%1: falló").arg(m_runningTitle));
+    reload();
+    Q_EMIT commandFinished(ok, m_commandOutput);
+}
+
+void RepositoryView::showCommandOutput()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(m_runningTitle);
+    dialog.resize(820, 460);
+    auto *text = new QPlainTextEdit(&dialog);
+    text->setReadOnly(true);
+    text->setFont(Theme::editorFont());
+    QString cleaned = m_commandOutput;
+    cleaned.replace(QLatin1String("\r\n"), QLatin1String("\n"));
+    // De las líneas de progreso (separadas por \r) se conserva solo la última
+    QStringList lines;
+    for (const QString &line : cleaned.split(QLatin1Char('\n')))
+        lines << line.section(QLatin1Char('\r'), -1);
+    text->setPlainText(lines.join(QLatin1Char('\n')));
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->addWidget(text, 1);
+    layout->addWidget(buttons);
+    dialog.exec();
+}
+
+void RepositoryView::pull()
+{
+    if (m_repo.upstreamName().isEmpty()) {
+        QMessageBox::information(this, tr("Pull"),
+                                 tr("La rama «%1» no tiene rama remota.\n\nUsa Push para publicarla, "
+                                    "o elige un fetch en las opciones de pull.").arg(m_repo.branchName()));
+        return;
+    }
+    const QString command = QSettings().value(QLatin1String(kPullSetting), QStringLiteral("pull")).toString();
+    QStringList args = command.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    args.insert(1, QStringLiteral("--progress"));
+    runGit(args, QStringLiteral("git ") + command);
+}
+
+void RepositoryView::fetch()
+{
+    runGit({QStringLiteral("fetch"), QStringLiteral("--progress")}, QStringLiteral("git fetch"));
+}
+
+void RepositoryView::push()
+{
+    if (m_repo.isHeadDetached()) {
+        QMessageBox::information(this, tr("Push"), tr("No hay ninguna rama activa (HEAD desacoplado)."));
+        return;
+    }
+    const QString branch = m_repo.branchName();
+    if (m_repo.upstreamName().isEmpty()) {
+        const QStringList remotes = m_repo.remoteNames();
+        if (remotes.isEmpty())
+            return;
+        const QString remote = remotes.contains(QLatin1String("origin")) ? QStringLiteral("origin") : remotes.first();
+        const auto answer = QMessageBox::question(
+            this, tr("Publicar rama"),
+            tr("La rama «%1» todavía no existe en el remoto.\n\n¿Publicarla como «%2/%1»?").arg(branch, remote));
+        if (answer != QMessageBox::Yes)
+            return;
+        runGit({QStringLiteral("push"), QStringLiteral("--progress"), QStringLiteral("--set-upstream"), remote, branch},
+               QStringLiteral("git push --set-upstream %1 %2").arg(remote, branch));
+        return;
+    }
+    const QString command = QSettings().value(QLatin1String(kPushSetting), QStringLiteral("push")).toString();
+    if (command.contains(QLatin1String("--force"))) {
+        const auto answer = QMessageBox::warning(
+            this, tr("Push forzado"),
+            tr("El botón Push está configurado como «git %1».\n\nPuede sobrescribir commits del remoto. ¿Continuar?")
+                .arg(command),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (answer != QMessageBox::Yes)
+            return;
+    }
+    QStringList args = command.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    args.insert(1, QStringLiteral("--progress"));
+    runGit(args, QStringLiteral("git ") + command);
+}
+
+void RepositoryView::showPullOptions()
+{
+    const bool tracking = !m_repo.upstreamName().isEmpty();
+    struct Option {
+        const char *command;
+        QString description;
+        bool isPull;
+    };
+    const QList<Option> options = {
+        {"pull", tr("Descarga los cambios del remoto y los fusiona en la rama actual"), true},
+        {"pull --ff-only", tr("Descarga los cambios y solo avanza la rama si no hace falta fusionar"), true},
+        {"pull --rebase", tr("Descarga los cambios y reaplica tus commits encima"), true},
+        {"pull --rebase --autostash", tr("Guarda los cambios sin confirmar antes de pull --rebase y los recupera después"), true},
+        {"fetch", tr("Descarga los cambios del remoto sin tocar tu rama"), false},
+        {"fetch --tags", tr("Descarga los cambios del remoto, incluidas todas las etiquetas"), false},
+        {"fetch --prune", tr("Descarga los cambios y borra las ramas remotas que ya no existen"), false},
+        {"fetch --all", tr("Descarga los cambios de todos los remotos"), false},
+    };
+    QList<GitCommandPalette::Item> items;
+    for (const Option &o : options) {
+        const QString command = QString::fromLatin1(o.command);
+        GitCommandPalette::Item item;
+        item.command = command;
+        item.description = o.description;
+        item.enabled = !o.isPull || tracking;
+        const bool isPull = o.isPull;
+        item.action = [this, command, isPull] {
+            if (isPull) // la opción elegida pasa a ser la del botón Pull
+                QSettings().setValue(QLatin1String(kPullSetting), command);
+            QStringList args = command.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            args.insert(1, QStringLiteral("--progress"));
+            runGit(args, QStringLiteral("git ") + command);
+            updateRemoteButtons();
+        };
+        items << item;
+    }
+    auto *palette = new GitCommandPalette(tr("Pull"), tr("Opciones de pull (la elegida queda como la del botón)"), items, this);
+    palette->setCurrentCommand(QSettings().value(QLatin1String(kPullSetting), QStringLiteral("pull")).toString());
+    palette->popup(this);
+}
+
+void RepositoryView::showPushOptions()
+{
+    const bool detached = m_repo.isHeadDetached();
+    const bool tracking = !m_repo.upstreamName().isEmpty();
+    const QString branch = m_repo.branchName();
+
+    QList<GitCommandPalette::Item> items;
+    auto add = [&](const QString &command, const QString &description, bool enabled, bool remember, bool confirmForce) {
+        GitCommandPalette::Item item;
+        item.command = command;
+        item.description = description;
+        item.enabled = enabled && !detached;
+        item.action = [this, command, remember, confirmForce] {
+            if (confirmForce) {
+                const auto answer = QMessageBox::warning(
+                    this, tr("Push forzado"),
+                    tr("«git %1» puede sobrescribir commits del remoto si alguien más los subió.\n\n¿Continuar?")
+                        .arg(command),
+                    QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+                if (answer != QMessageBox::Yes)
+                    return;
+            }
+            if (remember)
+                QSettings().setValue(QLatin1String(kPushSetting), command);
+            QStringList args = command.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            args.insert(1, QStringLiteral("--progress"));
+            runGit(args, QStringLiteral("git ") + command);
+            updateRemoteButtons();
+        };
+        items << item;
+    };
+    add(QStringLiteral("push"), tr("Envía los commits de la rama actual a su rama remota"), tracking, true, false);
+    for (const QString &remote : m_repo.remoteNames())
+        add(QStringLiteral("push --set-upstream %1 %2").arg(remote, branch),
+            tr("Publica la rama en «%1» y la enlaza como su rama remota").arg(remote), true, false, false);
+    add(QStringLiteral("push --force-with-lease"),
+        tr("Sobrescribe la rama remota solo si nadie más la ha cambiado (tras un rebase)"), tracking, false, true);
+    add(QStringLiteral("push --follow-tags"), tr("Envía los commits y las etiquetas anotadas que apuntan a ellos"),
+        tracking, true, false);
+    add(QStringLiteral("push --tags"), tr("Envía todas las etiquetas locales"), true, false, false);
+
+    auto *palette = new GitCommandPalette(tr("Push"), tr("Opciones de push"), items, this);
+    palette->setCurrentCommand(QSettings().value(QLatin1String(kPushSetting), QStringLiteral("push")).toString());
+    palette->popup(this);
+}
+
+QStringList RepositoryView::mergeableBranches(QStringList *descriptions) const
+{
+    QStringList names;
+    const QString current = m_repo.branchName();
+    const GitRepository::Locations loc = m_repo.locations();
+    for (const auto &b : loc.branches) {
+        if (b.name == current)
+            continue;
+        names << b.name;
+        descriptions->append(tr("rama local"));
+    }
+    for (auto it = loc.remotes.cbegin(); it != loc.remotes.cend(); ++it)
+        for (const auto &b : it.value()) {
+            names << b.name;
+            descriptions->append(tr("rama remota de «%1»").arg(it.key()));
+        }
+    return names;
+}
+
+void RepositoryView::showMergePalette()
+{
+    if (m_repo.isHeadDetached()) {
+        QMessageBox::information(this, tr("Merge"), tr("No hay ninguna rama activa (HEAD desacoplado)."));
+        return;
+    }
+    QStringList descriptions;
+    const QStringList branches = mergeableBranches(&descriptions);
+    QList<GitCommandPalette::Item> items;
+    for (int i = 0; i < branches.size(); ++i) {
+        const QString branch = branches.at(i);
+        items.append({branch, descriptions.at(i), [this, branch] { showMergeOptions(branch); }, true});
+    }
+    if (items.isEmpty()) {
+        QMessageBox::information(this, tr("Merge"), tr("No hay otras ramas que fusionar."));
+        return;
+    }
+    auto *palette = new GitCommandPalette(tr("Merge"), tr("Rama que se fusionará en «%1»").arg(m_repo.branchName()),
+                                          items, this);
+    palette->popup(this);
+}
+
+void RepositoryView::showMergeOptions(const QString &branch)
+{
+    const QString current = m_repo.branchName();
+    QList<GitCommandPalette::Item> items;
+    auto add = [&](const QStringList &flags, const QString &description) {
+        QStringList args = {QStringLiteral("merge")};
+        args << flags;
+        const QString shown = (args + QStringList{branch}).join(QLatin1Char(' '));
+        if (!flags.contains(QLatin1String("--squash")))
+            args << QStringLiteral("--no-edit");
+        args << branch;
+        items.append({shown, description, [this, args, shown] { runGit(args, QStringLiteral("git ") + shown); }, true});
+    };
+    add({}, tr("Fusiona «%1» en «%2» (avance rápido si es posible)").arg(branch, current));
+    add({QStringLiteral("--no-ff")}, tr("Fusiona creando siempre un commit de merge"));
+    add({QStringLiteral("--ff-only")}, tr("Solo avanza «%1» si no hace falta fusionar").arg(current));
+    add({QStringLiteral("--squash")}, tr("Deja los cambios de «%1» preparados, sin hacer commit").arg(branch));
+    auto *palette = new GitCommandPalette(tr("Merge"), tr("Opciones para fusionar «%1» en «%2»").arg(branch, current),
+                                          items, this);
+    palette->popup(this);
+}
+
+void RepositoryView::showSwitchPalette()
+{
+    const QString current = m_repo.branchName();
+    QList<GitCommandPalette::Item> items;
+    for (const auto &b : m_repo.locations().branches) {
+        if (b.name == current)
+            continue;
+        const QString name = b.name;
+        items.append({name, tr("rama local"), [this, name] {
+                          runGit({QStringLiteral("switch"), name}, QStringLiteral("git switch ") + name);
+                      }, true});
+    }
+    if (items.isEmpty()) {
+        QMessageBox::information(this, tr("Cambiar de rama"), tr("No hay otras ramas locales."));
+        return;
+    }
+    auto *palette = new GitCommandPalette(tr("Switch"), tr("Rama a la que cambiar"), items, this);
+    palette->popup(this);
+}
+
+void RepositoryView::createBranch()
+{
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, tr("Crear rama"),
+                                               tr("Nombre de la nueva rama (se crea desde «%1» y se cambia a ella):")
+                                                   .arg(m_repo.branchName()),
+                                               QLineEdit::Normal, QString(), &ok).trimmed();
+    if (ok && !name.isEmpty())
+        runGit({QStringLiteral("switch"), QStringLiteral("-c"), name}, QStringLiteral("git switch -c ") + name);
+}
+
+void RepositoryView::showCommandPalette()
+{
+    const bool hasRemotes = !m_repo.remoteNames().isEmpty();
+    const bool tracking = !m_repo.upstreamName().isEmpty();
+    const bool detached = m_repo.isHeadDetached();
+    auto run = [this](const QStringList &args) {
+        return [this, args] { runGit(args); };
+    };
+    const QList<GitCommandPalette::Item> items = {
+        {tr("Pull"), tr("Ejecuta la opción de pull del botón (Ctrl+Alt+P)"), [this] { pull(); }, tracking},
+        {tr("Pull…"), tr("Elegir una opción de pull o fetch (Ctrl+Alt+Shift+P)"), [this] { showPullOptions(); }, hasRemotes},
+        {tr("Push"), tr("Envía los commits a la rama remota (Ctrl+Alt+U)"), [this] { push(); }, hasRemotes && !detached},
+        {tr("Push…"), tr("Elegir una opción de push (Ctrl+Alt+Shift+U)"), [this] { showPushOptions(); }, hasRemotes},
+        {QStringLiteral("fetch"), tr("Descarga los cambios del remoto (Ctrl+Alt+F)"), [this] { fetch(); }, hasRemotes},
+        {QStringLiteral("fetch --all --prune"), tr("Descarga de todos los remotos y borra las ramas remotas eliminadas"),
+         run({QStringLiteral("fetch"), QStringLiteral("--progress"), QStringLiteral("--all"), QStringLiteral("--prune")}), hasRemotes},
+        {tr("Merge…"), tr("Fusionar otra rama en la actual (Ctrl+Alt+M)"), [this] { showMergePalette(); }, !detached},
+        {tr("Cambiar de rama…"), tr("git switch a otra rama local"), [this] { showSwitchPalette(); }, true},
+        {tr("Crear rama…"), tr("git switch -c: nueva rama desde la actual"), [this] { createBranch(); }, true},
+        {QStringLiteral("stash"), tr("Guarda los cambios sin confirmar (incluidos los nuevos) y limpia el directorio"),
+         run({QStringLiteral("stash"), QStringLiteral("push"), QStringLiteral("--include-untracked")}), true},
+        {QStringLiteral("stash pop"), tr("Recupera el último stash y lo elimina"), run({QStringLiteral("stash"), QStringLiteral("pop")}), true},
+        {QStringLiteral("merge --abort"), tr("Cancela un merge con conflictos y vuelve al estado anterior"),
+         run({QStringLiteral("merge"), QStringLiteral("--abort")}), true},
+        {QStringLiteral("rebase --continue"), tr("Continúa un rebase después de resolver los conflictos"),
+         run({QStringLiteral("rebase"), QStringLiteral("--continue")}), true},
+        {QStringLiteral("rebase --abort"), tr("Cancela el rebase en curso"), run({QStringLiteral("rebase"), QStringLiteral("--abort")}), true},
+    };
+    auto *palette = new GitCommandPalette(tr("Git"), tr("Buscar un comando…"), items, this);
+    palette->popup(this);
 }
