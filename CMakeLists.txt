@@ -79,6 +79,7 @@ set(BATCODE_SOURCES
     src/GitRepository.h        src/GitRepository.cpp
     src/FileDiffWidget.h       src/FileDiffWidget.cpp
     src/RepositoryView.h       src/RepositoryView.cpp
+    src/RepositoryHome.h       src/RepositoryHome.cpp
     src/GitWorkspace.h         src/GitWorkspace.cpp
     src/GitCommandPalette.h    src/GitCommandPalette.cpp
     src/FindInFiles.h          src/FindInFiles.cpp

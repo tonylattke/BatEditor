@@ -1,5 +1,6 @@
 #include "GitWorkspace.h"
 
+#include "RepositoryHome.h"
 #include "RepositoryView.h"
 #include "Theme.h"
 
@@ -41,32 +42,18 @@ bool isInside(const QString &file, const QString &dir)
 GitWorkspace::GitWorkspace(QWidget *parent)
     : QWidget(parent)
     , m_stack(new QStackedWidget(this))
-    , m_empty(new QWidget(this))
+    , m_home(new RepositoryHome(this))
     , m_tabs(new QTabWidget(this))
 {
-    // --- Estado vacío ---
-    auto *title = new QLabel(tr("Ningún repositorio abierto"), m_empty);
-    QFont f = title->font();
-    f.setPointSizeF(f.pointSizeF() * 1.4);
-    title->setFont(f);
-    title->setAlignment(Qt::AlignCenter);
-    auto *hint = new QLabel(tr("Abre la carpeta de un repositorio Git para ver sus ramas, commits y cambios."), m_empty);
-    hint->setAlignment(Qt::AlignCenter);
-    {
-        QPalette p = hint->palette();
-        p.setColor(QPalette::WindowText, Theme::colors().muted);
-        hint->setPalette(p);
-    }
-    auto *open = new QPushButton(tr("Abrir repositorio…"), m_empty);
-    open->setObjectName(QStringLiteral("primary"));
-    connect(open, &QPushButton::clicked, this, &GitWorkspace::promptOpenRepository);
-    auto *el = new QVBoxLayout(m_empty);
-    el->addStretch(1);
-    el->addWidget(title);
-    el->addWidget(hint);
-    el->addSpacing(12);
-    el->addWidget(open, 0, Qt::AlignHCenter);
-    el->addStretch(2);
+    // --- Página de inicio (sin repositorios, o con "+") ---
+    connect(m_home, &RepositoryHome::browseRequested, this, &GitWorkspace::promptOpenRepository);
+    connect(m_home, &RepositoryHome::openRequested, this, [this](const QString &path) {
+        QString error;
+        if (!openRepository(path, true, &error))
+            QMessageBox::warning(this, tr("Abrir repositorio"),
+                                 tr("%1 no es un repositorio Git.\n\n%2").arg(QDir::toNativeSeparators(path), error));
+    });
+    connect(m_home, &RepositoryHome::backRequested, this, [this] { m_stack->setCurrentWidget(m_tabs); });
 
     // --- Pestañas de repositorios ---
     m_tabs->setTabsClosable(true);
@@ -76,15 +63,18 @@ GitWorkspace::GitWorkspace(QWidget *parent)
     m_tabs->tabBar()->setExpanding(false);
     auto *add = new QToolButton(m_tabs);
     add->setText(QStringLiteral("+"));
-    add->setToolTip(tr("Abrir repositorio…"));
+    add->setToolTip(tr("Abrir o clonar un repositorio…"));
     add->setAutoRaise(true);
-    connect(add, &QToolButton::clicked, this, &GitWorkspace::promptOpenRepository);
+    connect(add, &QToolButton::clicked, this, &GitWorkspace::showHome);
     m_tabs->setCornerWidget(add, Qt::TopRightCorner);
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int i) {
         QWidget *w = m_tabs->widget(i);
         m_tabs->removeTab(i);
         w->deleteLater();
-        m_stack->setCurrentWidget(m_tabs->count() ? static_cast<QWidget *>(m_tabs) : m_empty);
+        if (m_tabs->count())
+            m_stack->setCurrentWidget(m_tabs);
+        else
+            showHome();
         Q_EMIT repositoriesChanged();
     });
     connect(m_tabs, &QTabWidget::currentChanged, this, [this] {
@@ -92,7 +82,8 @@ GitWorkspace::GitWorkspace(QWidget *parent)
         Q_EMIT repositoriesChanged();
     });
 
-    m_stack->addWidget(m_empty);
+    m_home->setBackVisible(false);
+    m_stack->addWidget(m_home);
     m_stack->addWidget(m_tabs);
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -128,8 +119,10 @@ bool GitWorkspace::openRepository(const QString &path, bool activate, QString *e
         return false;
     }
     const int existing = indexOfPath(view->path());
+    RepositoryHome::addRecentRepository(view->path());
     if (existing >= 0) {
         view->deleteLater();
+        m_stack->setCurrentWidget(m_tabs);
         if (activate)
             m_tabs->setCurrentIndex(existing);
         return true;
@@ -204,4 +197,11 @@ void GitWorkspace::promptOpenRepository()
 RepositoryView *GitWorkspace::currentView() const
 {
     return viewAt(m_tabs->currentIndex());
+}
+
+void GitWorkspace::showHome()
+{
+    m_home->reloadRecent();
+    m_home->setBackVisible(m_tabs->count() > 0);
+    m_stack->setCurrentWidget(m_home);
 }

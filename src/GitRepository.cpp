@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QStandardPaths>
 
 #include <git2.h>
 
@@ -131,6 +132,40 @@ bool GitRepository::check(int result, const char *what) const
                                                err && err->message ? QString::fromUtf8(err->message)
                                                                    : QStringLiteral("error %1").arg(result));
     return false;
+}
+
+QString GitRepository::gitExecutable()
+{
+    QString git = QStandardPaths::findExecutable(QStringLiteral("git"));
+#ifdef Q_OS_WIN
+    if (git.isEmpty()) {
+        const QStringList candidates = {
+            QStringLiteral("C:/Program Files/Git/cmd/git.exe"),
+            QStringLiteral("C:/Program Files (x86)/Git/cmd/git.exe"),
+            QDir::homePath() + QStringLiteral("/AppData/Local/Programs/Git/cmd/git.exe"),
+            QDir::homePath() + QStringLiteral("/scoop/shims/git.exe"),
+        };
+        for (const QString &c : candidates)
+            if (QFileInfo::exists(c))
+                return c;
+    }
+#endif
+    return git;
+}
+
+bool GitRepository::init(const QString &path, QString *error)
+{
+    git_repository *repo = nullptr;
+    const QByteArray p = QDir::cleanPath(path).toUtf8();
+    if (git_repository_init(&repo, p.constData(), 0) < 0) {
+        if (error) {
+            const git_error *e = git_error_last();
+            *error = e && e->message ? QString::fromUtf8(e->message) : gtr("No se pudo crear el repositorio");
+        }
+        return false;
+    }
+    git_repository_free(repo);
+    return true;
 }
 
 bool GitRepository::open(const QString &path)

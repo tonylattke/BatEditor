@@ -434,6 +434,10 @@ void MainWindow::createMenus()
         setMode(ModeSwitch::Git);
         m_git->promptOpenRepository();
     });
+    git->addAction(tr("Clonar repositorio…"), this, [this] {
+        setMode(ModeSwitch::Git);
+        m_git->showHome();
+    });
     addMenuAction(git, tr("Actualizar"), QKeySequence(Qt::Key_F5), this, [this] { m_git->refreshCurrent(); });
     git->addAction(tr("Cerrar repositorio"), this, [this] { m_git->closeCurrent(); });
     git->addSeparator();

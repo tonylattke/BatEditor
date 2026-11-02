@@ -77,6 +77,11 @@ public:
     GitRepository(const GitRepository &) = delete;
     GitRepository &operator=(const GitRepository &) = delete;
 
+    // Ruta del programa git (vacía si no está instalado); se usa para las operaciones remotas y clonar.
+    static QString gitExecutable();
+    // Crea un repositorio vacío en `path` (git init).
+    static bool init(const QString &path, QString *error = nullptr);
+
     // Busca un repositorio en `path` o en cualquiera de sus carpetas padre.
     bool open(const QString &path);
     void close();

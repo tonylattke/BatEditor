@@ -1369,25 +1369,6 @@ namespace {
 const char *kPullSetting = "git/pullCommand";
 const char *kPushSetting = "git/pushCommand";
 
-QString gitExecutable()
-{
-    QString git = QStandardPaths::findExecutable(QStringLiteral("git"));
-#ifdef Q_OS_WIN
-    if (git.isEmpty()) {
-        const QStringList candidates = {
-            QStringLiteral("C:/Program Files/Git/cmd/git.exe"),
-            QStringLiteral("C:/Program Files (x86)/Git/cmd/git.exe"),
-            QDir::homePath() + QStringLiteral("/AppData/Local/Programs/Git/cmd/git.exe"),
-            QDir::homePath() + QStringLiteral("/scoop/shims/git.exe"),
-        };
-        for (const QString &c : candidates)
-            if (QFileInfo::exists(c))
-                return c;
-    }
-#endif
-    return git;
-}
-
 // Última línea útil de la salida de git (las de progreso terminan en \r)
 QString lastLine(const QString &output)
 {
@@ -1506,7 +1487,7 @@ void RepositoryView::runGit(const QStringList &args, const QString &title)
         QMessageBox::information(this, tr("Git"), tr("Espera a que termine «%1».").arg(m_runningTitle));
         return;
     }
-    const QString git = gitExecutable();
+    const QString git = GitRepository::gitExecutable();
     if (git.isEmpty()) {
         QMessageBox::warning(this, tr("Git"),
                              tr("No se encontró el programa git.\n\n"

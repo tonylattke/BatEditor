@@ -1,5 +1,23 @@
 # Traducciones español -> inglés de la interfaz de BatCode (las usa update_translations.py)
 EN = {
+# Página de inicio del modo Git
+"No se pudo crear el repositorio": "Could not create the repository",
+"Abrir o clonar un repositorio…": "Open or clone a repository…",
+"Clonar repositorio…": "Clone Repository…",
+"Clonar": "Clone",
+"Nuevo repositorio": "New Repository",
+"URL de origen": "Source URL",
+"Nombre del repositorio": "Repository Name",
+"Carpeta de destino": "Destination Path",
+"Repositorios locales": "Local Repositories",
+"Repositorios recientes": "Recent Repositories",
+"Clonar repositorio": "Clone Repository",
+"Todavía no has abierto ningún repositorio.": "You haven't opened any repository yet.",
+"La carpeta %1 ya existe y no está vacía.": "The folder %1 already exists and is not empty.",
+"No se encontró el programa git.\n\nPara clonar se usa tu instalación de Git y sus credenciales. Instálalo desde https://git-scm.com y reinicia BatCode.": "The git program was not found.\n\nCloning uses your Git installation and its credentials. Install it from https://git-scm.com and restart BatCode.",
+"No se pudo crear la carpeta %1.": "Could not create the folder %1.",
+"Clonando…": "Cloning…",
+"No se pudo clonar: %1": "Clone failed: %1",
 "sin título %1": "untitled %1",
 "sin título": "untitled",
 "El archivo no tiene ruta": "The file has no path",

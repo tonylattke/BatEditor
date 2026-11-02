@@ -5,6 +5,7 @@
 
 class QStackedWidget;
 class QTabWidget;
+class RepositoryHome;
 class RepositoryView;
 
 // Modo Git: un repositorio por pestaña.
@@ -27,6 +28,7 @@ public Q_SLOTS:
     void refreshCurrent();
     void refreshRepositoryContaining(const QString &filePath);
     void promptOpenRepository();
+    void showHome();   // abrir, crear o clonar un repositorio
 
 Q_SIGNALS:
     void openFileRequested(const QString &absolutePath);
@@ -39,6 +41,6 @@ private:
     int indexOfPath(const QString &workdir) const;
 
     QStackedWidget *m_stack;
-    QWidget *m_empty;
+    RepositoryHome *m_home;
     QTabWidget *m_tabs;
 };
