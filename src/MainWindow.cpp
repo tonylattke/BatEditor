@@ -114,6 +114,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_wordWrap = settings.value(QStringLiteral("editor/wordWrap"), false).toBool();
     m_indentWidth = settings.value(QStringLiteral("editor/indentWidth"), 4).toInt();
     m_showLineNumbers = settings.value(QStringLiteral("editor/lineNumbers"), true).toBool();
+    m_showMinimap = settings.value(QStringLiteral("editor/minimap"), true).toBool();
 
     m_git = new GitWorkspace(this);
     connect(m_git, &GitWorkspace::openFileRequested, this, [this](const QString &p) {
@@ -407,6 +408,15 @@ void MainWindow::createMenus()
     sidebar->setChecked(true);
     sidebar->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_B));
     connect(sidebar, &QAction::toggled, m_sidebar, &QWidget::setVisible);
+    m_minimapAction = view->addAction(tr("Mostrar minimapa"));
+    m_minimapAction->setCheckable(true);
+    m_minimapAction->setChecked(m_showMinimap);
+    m_minimapAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M));
+    connect(m_minimapAction, &QAction::toggled, this, [this](bool on) {
+        m_showMinimap = on;
+        QSettings().setValue(QStringLiteral("editor/minimap"), on);
+        applyEditorSettings();
+    });
     m_wrapAction = view->addAction(tr("Ajuste de línea"));
     m_wrapAction->setCheckable(true);
     m_wrapAction->setChecked(m_wordWrap);
@@ -783,6 +793,7 @@ void MainWindow::showShortcuts()
 <tr><td><b>Ctrl+Shift+D</b></td><td>Duplicar líneas</td></tr>
 <tr><td><b>Tab / Shift+Tab</b></td><td>Sangrar / quitar sangría</td></tr>
 <tr><td><b>Clic central en una pestaña</b></td><td>Cerrar la pestaña (archivo o repositorio)</td></tr>
+<tr><td><b>Ctrl+Shift+M</b></td><td>Mostrar / ocultar el minimapa (clic: ir a esa línea; arrastrar: desplazar)</td></tr>
 <tr><td><b>Ctrl+B</b></td><td>Mostrar / ocultar el explorador de carpetas</td></tr>
 <tr><td><b>F5</b></td><td>Actualizar el repositorio (modo Git)</td></tr>
 <tr><td><b>Ctrl+Alt+P / Ctrl+Alt+Shift+P</b></td><td>Pull / opciones de pull</td></tr>
@@ -869,6 +880,7 @@ void MainWindow::applyEditorSettings(EditorTab *only)
         e->setFont(font);
         e->setIndentWidth(m_indentWidth);
         e->setShowLineNumbers(m_showLineNumbers);
+        e->setShowMinimap(m_showMinimap);
         e->setLineWrapMode(m_wordWrap ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
     };
     if (only) {
@@ -877,6 +889,10 @@ void MainWindow::applyEditorSettings(EditorTab *only)
         for (int i = 0; i < m_tabs->count(); ++i)
             if (EditorTab *t = tabAt(i))
                 apply(t);
+    }
+    if (m_minimapAction && m_minimapAction->isChecked() != m_showMinimap) {
+        const QSignalBlocker blocker(m_minimapAction);
+        m_minimapAction->setChecked(m_showMinimap);
     }
     if (m_wrapAction && m_wrapAction->isChecked() != m_wordWrap) {
         const QSignalBlocker blocker(m_wrapAction);
@@ -894,6 +910,7 @@ void MainWindow::showPreferences()
     current.indentWidth = m_indentWidth;
     current.wordWrap = m_wordWrap;
     current.lineNumbers = m_showLineNumbers;
+    current.minimap = m_showMinimap;
     current.pullCommand = settings.value(QStringLiteral("git/pullCommand"), QStringLiteral("pull")).toString();
     current.pushCommand = settings.value(QStringLiteral("git/pushCommand"), QStringLiteral("push")).toString();
 
@@ -906,11 +923,13 @@ void MainWindow::showPreferences()
     m_indentWidth = v.indentWidth;
     m_wordWrap = v.wordWrap;
     m_showLineNumbers = v.lineNumbers;
+    m_showMinimap = v.minimap;
     applyEditorSettings();
     settings.setValue(QStringLiteral("editor/pointSize"), m_fontSize);
     settings.setValue(QStringLiteral("editor/indentWidth"), m_indentWidth);
     settings.setValue(QStringLiteral("editor/wordWrap"), m_wordWrap);
     settings.setValue(QStringLiteral("editor/lineNumbers"), m_showLineNumbers);
+    settings.setValue(QStringLiteral("editor/minimap"), m_showMinimap);
     settings.setValue(QStringLiteral("git/pullCommand"), v.pullCommand);
     settings.setValue(QStringLiteral("git/pushCommand"), v.pushCommand);
     m_git->refreshCurrent(); // actualiza los textos de ayuda de los botones Pull/Push

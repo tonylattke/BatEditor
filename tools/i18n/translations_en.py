@@ -377,10 +377,13 @@ EN = {
     'No se encontró «%1»: no hay nada que reemplazar.': '"%1" was not found: nothing to replace.',
     '¿Reemplazar %1 coincidencias de «%2» por «%3» en %4 archivos?\n\nLos archivos abiertos se cambian en el editor (sin guardar, se puede deshacer); los demás se guardan directamente en el disco.': 'Replace %1 matches of "%2" with "%3" in %4 files?\n\nOpen files are changed in the editor (unsaved, can be undone); the others are saved directly to disk.',
     'No se pudieron cambiar estos archivos (sin permiso o no son UTF-8):\n\n%1': 'These files could not be changed (no permission or not UTF-8):\n\n%1',
+    'Mostrar minimapa': 'Show Minimap',
+    'Mostrar el minimapa': 'Show the minimap',
 }
 
 # Tabla de atajos (HTML): se traduce por frases
 SHORTCUT_PHRASES = [
+    ('Mostrar / ocultar el minimapa (clic: ir a esa línea; arrastrar: desplazar)', 'Show / hide the minimap (click: go to that line; drag: scroll)'),
     ('Clic central en una pestaña', 'Middle-click a tab'),
     ('Cerrar la pestaña (archivo o repositorio)', 'Close the tab (file or repository)'),
     ('Buscar en archivos (resultados en una pestaña; Enter o doble clic abre la línea)', 'Find in Files (results in a tab; Enter or double-click opens the line)'),

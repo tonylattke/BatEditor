@@ -1,5 +1,6 @@
 #include "CodeEditor.h"
 
+#include "Minimap.h"
 #include "Theme.h"
 
 #include <QApplication>
@@ -92,6 +93,9 @@ CodeEditor::CodeEditor(QWidget *parent)
         viewport()->update();
     });
 
+    m_minimap = new Minimap(this);
+    m_minimap->hide();
+
     updateLineNumberAreaWidth();
     updateExtraSelections();
 }
@@ -106,6 +110,21 @@ void CodeEditor::setPersistentHighlights(const QList<QTextCursor> &ranges)
 {
     m_persistentHighlights = ranges;
     updateExtraSelections();
+}
+
+void CodeEditor::setShowMinimap(bool show)
+{
+    m_showMinimap = show;
+    m_minimap->setVisible(show);
+    updateLineNumberAreaWidth();
+}
+
+void CodeEditor::updateMinimapGeometry()
+{
+    if (!m_showMinimap)
+        return;
+    const QRect vg = viewport()->geometry();
+    m_minimap->setGeometry(vg.right() + 1, vg.top(), Minimap::kWidth, vg.height());
 }
 
 void CodeEditor::setShowLineNumbers(bool show)
@@ -134,7 +153,8 @@ int CodeEditor::lineNumberAreaWidth() const
 
 void CodeEditor::updateLineNumberAreaWidth()
 {
-    setViewportMargins(lineNumberAreaWidth(), 0, 0, 0);
+    setViewportMargins(lineNumberAreaWidth(), 0, m_showMinimap ? Minimap::kWidth : 0, 0);
+    updateMinimapGeometry();
 }
 
 void CodeEditor::updateLineNumberArea(const QRect &rect, int dy)
@@ -152,6 +172,7 @@ void CodeEditor::resizeEvent(QResizeEvent *e)
     QPlainTextEdit::resizeEvent(e);
     const QRect cr = contentsRect();
     m_lineNumberArea->setGeometry(QRect(cr.left(), cr.top(), lineNumberAreaWidth(), cr.height()));
+    updateMinimapGeometry();
 }
 
 void CodeEditor::changeEvent(QEvent *e)

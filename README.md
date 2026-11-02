@@ -76,6 +76,9 @@ archivos abiertos.
     (se puede deshacer) y el resto de archivos se guarda en disco conservando CRLF/LF y BOM.
 - **Clic central** (rueda del ratón) sobre una pestaña la cierra, igual que la ✕; también en las
   pestañas de repositorios del modo Git.
+- **Minimapa** a la derecha (como en Sublime): el archivo en miniatura con sus colores y un
+  recuadro con la parte visible. Un clic va a esa línea; arrastrar desplaza el editor.
+  `Ctrl+Shift+M` (Ver › Mostrar minimapa) o Preferencias lo muestran u ocultan.
 - `Ctrl+P`: ir a archivo con búsqueda difusa. `Ctrl+G`: ir a línea.
 - Barra de estado con línea y columna, número de cursores, sangría y lenguaje.
 - Respeta los finales de línea CRLF/LF de cada archivo y guarda de forma atómica.
@@ -210,6 +213,7 @@ src/
   ModeSwitch.*             Interruptor [Editor | Git] de la esquina superior derecha
   EditorTab.*              Pestaña = archivo + barra de búsqueda; carga y guardado
   CodeEditor.*             Editor: números de línea, cursores múltiples, sangría, búsqueda
+  Minimap.*                Minimapa del editor (vista en miniatura y navegación)
   FindBar.*                Barra de buscar y reemplazar
   FindInFiles.*            Motor de "Buscar en archivos": recorrido, búsqueda, reemplazo y formato de resultados
   FindInFilesPanel.*       Panel Buscar / Donde / Reemplazar (Ctrl+Shift+F)
@@ -236,5 +240,5 @@ tools/i18n/                Script y textos para regenerar las traducciones
 - Grafo real de ramas en la lista de commits.
 - Borrar y renombrar ramas; rebase interactivo; resolver conflictos dentro de BatCode.
 - Búsqueda en el historial.
-- Paleta de comandos para el modo editor y minimapa.
+- Paleta de comandos para el modo editor.
 - Resaltado con tree-sitter, temas configurables y ajustes en JSON.

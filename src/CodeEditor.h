@@ -8,6 +8,7 @@
 #include <functional>
 
 class LineNumberArea;
+class Minimap;
 
 // Editor de código con:
 //  - números de línea y resaltado de la línea actual
@@ -25,6 +26,9 @@ public:
     int indentWidth() const { return m_indentWidth; }
     void setLineCommentToken(const QString &token) { m_lineComment = token; }
     void setShowLineNumbers(bool show);
+    void setShowMinimap(bool show);                 // miniatura del archivo a la derecha
+    bool showMinimap() const { return m_showMinimap; }
+    Minimap *minimap() const { return m_minimap; }
     void setPersistentHighlights(const QList<QTextCursor> &ranges);  // resaltados fijos (p. ej. resultados)
 
     // --- Cursores múltiples ---
@@ -99,6 +103,9 @@ private:
     void recomputeSearchMatches();
 
     LineNumberArea *m_lineNumberArea = nullptr;
+    Minimap *m_minimap = nullptr;
+    bool m_showMinimap = false;
+    void updateMinimapGeometry();
     QList<QTextCursor> m_extraCursors;
     int m_indentWidth = 4;
     bool m_showLineNumbers = true;

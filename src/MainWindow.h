@@ -95,6 +95,8 @@ private:
     int m_indentWidth = 4;
     bool m_wordWrap = false;
     bool m_showLineNumbers = true;
+    bool m_showMinimap = true;
+    QAction *m_minimapAction = nullptr;
     QAction *m_wrapAction = nullptr;
     FindInFilesPanel *m_findPanel = nullptr;
     QPointer<EditorTab> m_resultsTab;   // la última pestaña de resultados (F4 / Shift+F4)

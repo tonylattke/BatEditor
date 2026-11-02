@@ -19,6 +19,7 @@ public:
         int indentWidth = 4;
         bool wordWrap = false;
         bool lineNumbers = true;
+        bool minimap = true;
         QString pullCommand = QStringLiteral("pull");
         QString pushCommand = QStringLiteral("push");
     };
@@ -32,6 +33,7 @@ private:
     QSpinBox *m_indent;
     QCheckBox *m_wordWrap;
     QCheckBox *m_lineNumbers;
+    QCheckBox *m_minimap;
     QComboBox *m_pull;
     QComboBox *m_push;
 };
