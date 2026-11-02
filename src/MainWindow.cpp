@@ -4,6 +4,7 @@
 #include "EditorTab.h"
 #include "FindBar.h"
 #include "GitWorkspace.h"
+#include "PreferencesDialog.h"
 #include "QuickOpenDialog.h"
 #include "RepositoryView.h"
 #include "Theme.h"
@@ -21,6 +22,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QProcess>
 #include <QSettings>
 #include <QSortFilterProxyModel>
 #include <QSplitter>
@@ -107,6 +109,8 @@ MainWindow::MainWindow(QWidget *parent)
     QSettings settings;
     m_fontSize = settings.value(QStringLiteral("editor/pointSize"), 10).toInt();
     m_wordWrap = settings.value(QStringLiteral("editor/wordWrap"), false).toBool();
+    m_indentWidth = settings.value(QStringLiteral("editor/indentWidth"), 4).toInt();
+    m_showLineNumbers = settings.value(QStringLiteral("editor/lineNumbers"), true).toBool();
 
     m_git = new GitWorkspace(this);
     connect(m_git, &GitWorkspace::openFileRequested, this, [this](const QString &p) {
@@ -291,6 +295,9 @@ void MainWindow::createMenus()
         else if (m_tabs->currentIndex() >= 0)
             closeTab(m_tabs->currentIndex());
     });
+    file->addSeparator();
+    addMenuAction(file, tr("Preferencias…"), QKeySequence(Qt::CTRL | Qt::Key_Comma), this, &MainWindow::showPreferences);
+    file->addSeparator();
     addMenuAction(file, tr("Salir"), QKeySequence(Qt::CTRL | Qt::Key_Q), this, &QWidget::close);
 
     // --- Editar -------------------------------------------------------------
@@ -372,15 +379,13 @@ void MainWindow::createMenus()
     sidebar->setChecked(true);
     sidebar->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_B));
     connect(sidebar, &QAction::toggled, m_sidebar, &QWidget::setVisible);
-    QAction *wrap = view->addAction(tr("Ajuste de línea"));
-    wrap->setCheckable(true);
-    wrap->setChecked(m_wordWrap);
-    wrap->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Z));
-    connect(wrap, &QAction::toggled, this, [this](bool on) {
+    m_wrapAction = view->addAction(tr("Ajuste de línea"));
+    m_wrapAction->setCheckable(true);
+    m_wrapAction->setChecked(m_wordWrap);
+    m_wrapAction->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Z));
+    connect(m_wrapAction, &QAction::toggled, this, [this](bool on) {
         m_wordWrap = on;
-        for (int i = 0; i < m_tabs->count(); ++i)
-            if (EditorTab *t = tabAt(i))
-                t->editor()->setLineWrapMode(on ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
+        applyEditorSettings();
     });
     addMenuAction(view, tr("Aumentar fuente"), QKeySequence(Qt::CTRL | Qt::Key_Equal), this, [this] { changeFontSize(+1); });
     addMenuAction(view, tr("Reducir fuente"), QKeySequence(Qt::CTRL | Qt::Key_Minus), this, [this] { changeFontSize(-1); });
@@ -474,8 +479,7 @@ EditorTab *MainWindow::newTab()
 {
     auto *tab = new EditorTab(EditorTab::Kind::File, m_tabs);
     tab->setUntitledIndex(++m_untitledCounter);
-    tab->editor()->setFont(Theme::editorFont(m_fontSize));
-    tab->editor()->setLineWrapMode(m_wordWrap ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
+    applyEditorSettings(tab);
 
     connect(tab, &EditorTab::titleChanged, this, [this, tab] {
         updateTabTitle(tab);
@@ -753,6 +757,7 @@ void MainWindow::showShortcuts()
 <tr><td><b>Ctrl+Shift+P</b></td><td>Comandos de Git (stash, rebase, crear rama…)</td></tr>
 <tr><td><b>Ctrl+Enter</b></td><td>Commit (en el mensaje)</td></tr>
 <tr><td><b>Doble clic en una rama</b></td><td>Cambiar a esa rama</td></tr>
+<tr><td><b>Ctrl+,</b></td><td>Preferencias (idioma, editor, Git)</td></tr>
 </table>)");
     QMessageBox box(this);
     box.setWindowTitle(tr("Atajos de teclado"));
@@ -771,6 +776,8 @@ void MainWindow::saveSession()
     settings.setValue(QStringLiteral("window/editorSplitter"), m_editorSplitter->saveState());
     settings.setValue(QStringLiteral("editor/pointSize"), m_fontSize);
     settings.setValue(QStringLiteral("editor/wordWrap"), m_wordWrap);
+    settings.setValue(QStringLiteral("editor/indentWidth"), m_indentWidth);
+    settings.setValue(QStringLiteral("editor/lineNumbers"), m_showLineNumbers);
     settings.setValue(QStringLiteral("session/folder"), m_rootPath);
     settings.setValue(QStringLiteral("session/mode"), int(m_modeSwitch->mode()));
     settings.setValue(QStringLiteral("session/repositories"), m_git->repositoryPaths());
@@ -814,4 +821,82 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
     saveSession();
     event->accept();
+}
+
+// ---------------------------------------------------------------------------
+// Preferencias
+// ---------------------------------------------------------------------------
+void MainWindow::applyEditorSettings(EditorTab *only)
+{
+    const QFont font = Theme::editorFont(m_fontSize);
+    auto apply = [&](EditorTab *t) {
+        CodeEditor *e = t->editor();
+        e->setFont(font);
+        e->setIndentWidth(m_indentWidth);
+        e->setShowLineNumbers(m_showLineNumbers);
+        e->setLineWrapMode(m_wordWrap ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
+    };
+    if (only) {
+        apply(only);   // pestaña nueva, quizá aún no añadida
+    } else {
+        for (int i = 0; i < m_tabs->count(); ++i)
+            if (EditorTab *t = tabAt(i))
+                apply(t);
+    }
+    if (m_wrapAction && m_wrapAction->isChecked() != m_wordWrap) {
+        const QSignalBlocker blocker(m_wrapAction);
+        m_wrapAction->setChecked(m_wordWrap);
+    }
+    updateStatus();
+}
+
+void MainWindow::showPreferences()
+{
+    QSettings settings;
+    PreferencesDialog::Values current;
+    current.language = I18n::currentLanguage();
+    current.fontSize = m_fontSize;
+    current.indentWidth = m_indentWidth;
+    current.wordWrap = m_wordWrap;
+    current.lineNumbers = m_showLineNumbers;
+    current.pullCommand = settings.value(QStringLiteral("git/pullCommand"), QStringLiteral("pull")).toString();
+    current.pushCommand = settings.value(QStringLiteral("git/pushCommand"), QStringLiteral("push")).toString();
+
+    PreferencesDialog dialog(current, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    const PreferencesDialog::Values v = dialog.values();
+
+    m_fontSize = v.fontSize;
+    m_indentWidth = v.indentWidth;
+    m_wordWrap = v.wordWrap;
+    m_showLineNumbers = v.lineNumbers;
+    applyEditorSettings();
+    settings.setValue(QStringLiteral("editor/pointSize"), m_fontSize);
+    settings.setValue(QStringLiteral("editor/indentWidth"), m_indentWidth);
+    settings.setValue(QStringLiteral("editor/wordWrap"), m_wordWrap);
+    settings.setValue(QStringLiteral("editor/lineNumbers"), m_showLineNumbers);
+    settings.setValue(QStringLiteral("git/pullCommand"), v.pullCommand);
+    settings.setValue(QStringLiteral("git/pushCommand"), v.pushCommand);
+    m_git->refreshCurrent(); // actualiza los textos de ayuda de los botones Pull/Push
+
+    if (v.language != current.language) {
+        I18n::setLanguage(v.language);
+        const auto answer = QMessageBox::question(
+            this, tr("Cambiar idioma"),
+            tr("El idioma se aplicará al reiniciar BatCode.\n\n¿Reiniciar ahora? Se conservan las carpetas, "
+               "los archivos y los repositorios abiertos."),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (answer == QMessageBox::Yes)
+            restartApplication();
+    }
+}
+
+void MainWindow::restartApplication()
+{
+    // close() pasa por closeEvent: pregunta por los cambios sin guardar y guarda la sesión
+    if (!close())
+        return;
+    QProcess::startDetached(QCoreApplication::applicationFilePath(), {});
+    qApp->quit();
 }

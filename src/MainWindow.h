@@ -5,6 +5,7 @@
 #include <QMainWindow>
 
 class CodeEditor;
+class QAction;
 class EditorTab;
 class FolderProxyModel;
 class GitWorkspace;
@@ -54,6 +55,9 @@ private:
     void changeFontSize(int delta);
     void showShortcuts();
     void saveSession();
+    void showPreferences();
+    void applyEditorSettings(EditorTab *only = nullptr);
+    void restartApplication();
 
     ModeSwitch *m_modeSwitch = nullptr;
     QStackedWidget *m_pages = nullptr;
@@ -76,5 +80,8 @@ private:
     QString m_containerPath;
     int m_untitledCounter = 0;
     int m_fontSize = 10;
+    int m_indentWidth = 4;
     bool m_wordWrap = false;
+    bool m_showLineNumbers = true;
+    QAction *m_wrapAction = nullptr;
 };

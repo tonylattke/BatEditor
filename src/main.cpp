@@ -1,3 +1,4 @@
+#include "I18n.h"
 #include "MainWindow.h"
 #include "Theme.h"
 
@@ -10,13 +11,14 @@ int main(int argc, char *argv[])
     QApplication::setApplicationName(QStringLiteral("BatCode"));
     QApplication::setOrganizationName(QStringLiteral("BatCode"));
     QApplication::setApplicationVersion(QStringLiteral(BATCODE_VERSION));
+    I18n::install(app); // inglés por defecto; español desde Archivo › Preferencias
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("BatCode: editor de texto con Git integrado"));
+    parser.setApplicationDescription(QCoreApplication::translate("main", "BatCode: editor de texto con Git integrado"));
     parser.addHelpOption();
     parser.addVersionOption();
-    parser.addPositionalArgument(QStringLiteral("rutas"),
-                                 QStringLiteral("Archivos o carpeta a abrir."),
+    parser.addPositionalArgument(QCoreApplication::translate("main", "rutas"),
+                                 QCoreApplication::translate("main", "Archivos o carpeta a abrir."),
                                  QStringLiteral("[rutas...]"));
     parser.process(app);
 

@@ -1,5 +1,6 @@
 #include "GitRepository.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -10,6 +11,12 @@
 #include <vector>
 
 namespace {
+
+// Textos visibles de esta clase (no es un QObject): se traducen con el contexto "GitRepository"
+QString gtr(const char *text)
+{
+    return QCoreApplication::translate("GitRepository", text);
+}
 
 // --- RAII para objetos de libgit2 -------------------------------------------
 template <typename T, void (*Free)(T *)>
@@ -132,12 +139,12 @@ bool GitRepository::open(const QString &path)
     git_repository *repo = nullptr;
     const QByteArray p = QDir::cleanPath(path).toUtf8();
     if (git_repository_open_ext(&repo, p.constData(), 0, nullptr) < 0) {
-        m_lastError = QStringLiteral("No es un repositorio Git");
+        m_lastError = gtr("No es un repositorio Git");
         return false;
     }
     if (git_repository_is_bare(repo)) {
         git_repository_free(repo);
-        m_lastError = QStringLiteral("Los repositorios 'bare' no están soportados");
+        m_lastError = gtr("Los repositorios 'bare' no están soportados");
         return false;
     }
     m_repo = repo;
@@ -170,14 +177,14 @@ QString GitRepository::branchName() const
             target.remove(QStringLiteral("refs/heads/"));
             return target;
         }
-        return QStringLiteral("(sin commits)");
+        return gtr("(sin commits)");
     }
     if (rc < 0)
         return QString();
     if (git_repository_head_detached(m_repo) == 1) {
         char buf[GIT_OID_HEXSZ + 1] = {};
         git_oid_tostr(buf, 8, git_reference_target(head.get()));
-        return QStringLiteral("HEAD desacoplado (%1)").arg(QString::fromLatin1(buf));
+        return gtr("HEAD desacoplado (%1)").arg(QString::fromLatin1(buf));
     }
     return QString::fromUtf8(git_reference_shorthand(head.get()));
 }
@@ -254,7 +261,7 @@ QString GitRepository::diff(const QString &path, bool staged) const
     }
     DiffPtr diff(raw);
     const QString text = diffToText(diff.get());
-    return text.isEmpty() ? QStringLiteral("(sin diferencias de texto: archivo binario o solo cambio de modo)")
+    return text.isEmpty() ? gtr("(sin diferencias de texto: archivo binario o solo cambio de modo)")
                           : text;
 }
 
@@ -543,7 +550,7 @@ GitRepository::Locations GitRepository::locations() const
     git_stash_foreach(m_repo, collectStash, &loc.stashes);
     git_submodule_foreach(m_repo, collectSubmodule, &loc.submodules);
 
-    loc.worktrees << QStringLiteral("(principal)");
+    loc.worktrees << gtr("(principal)");
     git_strarray wts = {nullptr, 0};
     if (git_worktree_list(&wts, m_repo) == 0) {
         for (size_t i = 0; i < wts.count; ++i)
@@ -755,13 +762,13 @@ bool GitRepository::commit(const QString &message, QString *newCommitId)
     if (!m_repo)
         return false;
     if (message.trimmed().isEmpty()) {
-        m_lastError = QStringLiteral("El mensaje del commit está vacío");
+        m_lastError = gtr("El mensaje del commit está vacío");
         return false;
     }
 
     git_signature *sigRaw = nullptr;
     if (git_signature_default(&sigRaw, m_repo) < 0) {
-        m_lastError = QStringLiteral(
+        m_lastError = gtr(
             "Configura tu identidad de Git:\n"
             "  git config --global user.name \"Tu Nombre\"\n"
             "  git config --global user.email \"tu@correo\"");
@@ -790,7 +797,7 @@ bool GitRepository::commit(const QString &message, QString *newCommitId)
     if (parent) {
         const git_oid *parentTree = git_commit_tree_id(parent.get());
         if (git_oid_equal(parentTree, &treeId)) {
-            m_lastError = QStringLiteral("No hay cambios preparados para el commit");
+            m_lastError = gtr("No hay cambios preparados para el commit");
             return false;
         }
     }

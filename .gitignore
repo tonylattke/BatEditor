@@ -9,3 +9,4 @@ CMakeUserPresets.json
 .deps/
 build-windows.log
 aqtinstall.log
+__pycache__/

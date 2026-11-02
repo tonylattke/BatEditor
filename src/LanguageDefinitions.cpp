@@ -1,5 +1,6 @@
 #include "LanguageDefinitions.h"
 
+#include <QCoreApplication>
 #include <QFileInfo>
 
 namespace {
@@ -219,7 +220,7 @@ const LanguageDefinition &plainText()
 {
     static const LanguageDefinition d = [] {
         LanguageDefinition p;
-        p.name = QStringLiteral("Texto plano");
+        p.name = QCoreApplication::translate("Languages", "Texto plano");
         p.stringDelimiters.clear();
         p.highlightFunctions = false;
         return p;

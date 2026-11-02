@@ -115,6 +115,11 @@ void apply(QApplication &app)
         QLabel#sidebarEmpty { color: %3; background: %2; }
         QLabel#paneTitle { color: %5; padding: 7px; background: %2; border-bottom: 1px solid %1; }
         QWidget#sidebar { background: %2; }
+        QGroupBox { border: 1px solid %1; border-radius: 4px; margin-top: 14px; padding: 12px 10px 8px 10px; }
+        QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0px 4px; color: %3; font-weight: bold; }
+        QComboBox { background: %4; border: 1px solid %1; border-radius: 3px; padding: 3px 6px; color: %5; }
+        QComboBox:focus { border-color: %6; }
+        QComboBox QAbstractItemView { background: %8; color: %5; selection-background-color: %7; }
     )")
         .arg(c.border.name(), c.backgroundAlt.name(), c.muted.name(), c.background.name(),
              c.foreground.name(), c.accent.name(), c.selection.name(), c.panel.name()));

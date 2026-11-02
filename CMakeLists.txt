@@ -80,6 +80,8 @@ set(BATCODE_SOURCES
     src/RepositoryView.h       src/RepositoryView.cpp
     src/GitWorkspace.h         src/GitWorkspace.cpp
     src/GitCommandPalette.h    src/GitCommandPalette.cpp
+    src/I18n.h                 src/I18n.cpp               src/I18nTable.cpp
+    src/PreferencesDialog.h    src/PreferencesDialog.cpp
     src/ModeSwitch.h           src/ModeSwitch.cpp
     src/MainWindow.h           src/MainWindow.cpp
 )

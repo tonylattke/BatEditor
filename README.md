@@ -14,6 +14,28 @@ de la esquina superior derecha, o con `Ctrl+Shift+E` y `Ctrl+Shift+G`.
 |---|---|
 | ![Modo editor](docs/captura.png) | ![Modo Git](docs/captura-git.png) |
 
+## Idioma y preferencias
+
+BatCode está disponible en **inglés** (idioma por defecto) y **español**. El idioma se cambia en
+**File › Preferences…** (**Archivo › Preferencias…**, `Ctrl+,`). BatCode ofrece reiniciarse al
+momento y conserva las carpetas, los archivos y los repositorios abiertos. Con el idioma también
+cambian el formato de las fechas y, en español, los botones de los diálogos de Qt
+(Aceptar/Cancelar/Guardar) y el menú de clic derecho del editor.
+
+La ventana de Preferencias también permite elegir:
+
+| Sección | Opción |
+|---|---|
+| General | Idioma: English / Español |
+| Editor | Tamaño de fuente, sangría (espacios), ajuste de línea y números de línea |
+| Git | La opción que ejecutan los botones Pull (`pull`, `--ff-only`, `--rebase`, `--rebase --autostash`) y Push (`push`, `--follow-tags`) |
+
+**Cómo se traduce.** Los textos del código están en español (`tr("…")`), y la traducción al
+inglés está compilada dentro del programa (`src/I18nTable.cpp`), así que no hacen falta archivos
+`.qm` ni Qt Linguist. Si añades o cambias textos, ejecuta
+`python tools/i18n/update_translations.py`: regenera la tabla y lista los textos que aún no tienen
+traducción, que se añaden en `tools/i18n/translations_en.py`.
+
 ## Modo editor
 
 Tiene dos partes: el **explorador de carpetas** a la izquierda (la carpeta abierta aparece como
@@ -181,6 +203,9 @@ src/
   RepositoryView.*         Las tres secciones de un repositorio (ubicaciones, commits, detalle)
   FileDiffWidget.*         Bloque plegable con el diff de un archivo y sus acciones
   GitCommandPalette.*      Paleta emergente de comandos (opciones de pull, push, merge…)
+  PreferencesDialog.*      Archivo › Preferencias (idioma, editor, Git)
+  I18n.*, I18nTable.cpp    Idioma de la interfaz y tabla de traducciones (generada)
+tools/i18n/                Script y textos para regenerar las traducciones
   Theme.*                  Paleta oscura y estilos
 ```
 
