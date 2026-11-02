@@ -5,7 +5,10 @@
   "dependencies": [
     {
       "name": "libgit2",
-      "default-features": false
+      "default-features": false,
+      "features": [
+        "pcre2"
+      ]
     }
   ]
 }

@@ -6,3 +6,6 @@ vcpkg_installed/
 .vscode/
 *.user
 CMakeUserPresets.json
+.deps/
+build-windows.log
+aqtinstall.log

@@ -69,54 +69,76 @@ superior con la rama actual, «Abrir en el editor» y «Actualizar» (`F5`), y *
      Cada archivo tiene sus acciones (Preparar, Quitar, Descartar, Abrir) y cada sección tiene
      «Preparar todo» o «Quitar todo».
 
+**Selección múltiple y menú contextual.** En la pestaña *Archivos* puedes seleccionar varios
+archivos con `Ctrl+clic` y `Shift+clic`, incluso de secciones distintas. `Shift+Enter` prepara o
+quita de preparados los seleccionados. El clic derecho, en la lista o sobre la cabecera de un
+archivo en el detalle, ofrece:
+
+| Opción | Qué hace |
+|---|---|
+| Preparar / Quitar de preparados (`Shift+Enter`) | Para todos los archivos seleccionados |
+| Descartar cambios… | Vuelve a la versión preparada (pide confirmación) |
+| Borrar archivo… | Mueve los archivos a la papelera |
+| Historial del archivo | Commits de la rama actual que cambiaron el archivo; clic para abrir uno |
+| Blame | Quién cambió cada línea y en qué commit; las líneas sin confirmar se marcan aparte; doble clic para ir al commit |
+| Abrir en el editor… | Abre los archivos en el modo editor |
+| Abrir carpeta contenedora… | Abre el Explorador con el archivo seleccionado |
+| Copiar ruta del archivo / Copiar ruta relativa | Copia las rutas al portapapeles |
+
 La sesión recuerda el modo, la carpeta, los archivos y los repositorios abiertos.
 
-## Compilar en Linux
+## Compilar y ejecutar
+
+Hay un script para compilar y otro para ejecutar en cada sistema:
+
+| | Windows | Linux |
+|---|---|---|
+| Compilar | `build.bat` | `./build.sh` |
+| Ejecutar | `run.bat` | `./run.sh` |
+
+`run.bat` y `run.sh` compilan primero si el ejecutable no existe **o si cambiaste algo** en
+`src/`, `CMakeLists.txt` o `vcpkg.json`, y después abren BatCode. Puedes pasarles archivos o una
+carpeta para abrir: `run.bat F:\mi-proyecto`.
+
+### Windows (`build.bat`)
+
+Solo necesitas **Visual Studio 2022** con «Desarrollo para el escritorio con C++» y **Git**.
+Se puede ejecutar con doble clic o desde una consola. El script hace todo lo demás:
+
+1. Busca Visual Studio 2022 con `vswhere` y carga su compilador (MSVC x64). Si también tienes
+   otra versión instalada, obliga a vcpkg a usar la misma.
+2. Descarga **vcpkg** en `.deps\vcpkg` y compila **libgit2** (con pcre2), solo la primera vez.
+3. Busca **Qt 6** en `QT_DIR`, en `C:\Qt\6.*\msvc2022_64` o en `.deps\Qt`. Si no lo
+   encuentra, descarga Qt 6.8.3 con *aqtinstall* en `.deps\Qt` (unos 300 MB, una sola vez).
+4. Configura y compila con CMake y Ninja en `build\windows`.
+5. Copia junto a `BatCode.exe` las DLL de Qt (`windeployqt`) y las de libgit2.
+
+Opciones: `build.bat Debug`, `build.bat --clean` (borra `build\windows` antes) y
+`build.bat --no-pause`. Para usar tu propio Qt: `set QT_DIR=C:\Qt\6.8.3\msvc2022_64`.
+
+La primera compilación tarda unos minutos (vcpkg y Qt); las siguientes solo recompilan lo que
+cambió. Todo lo descargado queda en `.deps\` y `build\`, que Git ignora.
+
+### Linux (`build.sh`)
+
+Necesitas CMake, un compilador C++17, Qt 6 (Widgets) y libgit2. Si falta algo, el script te dice
+qué instalar, o lo instala él con `./build.sh --install-deps`, que usa sudo y apt, dnf, pacman o
+zypper según tu distribución. Equivale a:
 
 ```bash
 # Ubuntu / Debian
-sudo apt install build-essential cmake ninja-build qt6-base-dev libgit2-dev libgl1-mesa-dev
-
+sudo apt install build-essential cmake ninja-build pkg-config qt6-base-dev libgit2-dev libgl-dev
 # Fedora
 sudo dnf install gcc-c++ cmake ninja-build qt6-qtbase-devel libgit2-devel
-
 # Arch
 sudo pacman -S base-devel cmake ninja qt6-base libgit2
-
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-./build/BatCode            # o: ./build/BatCode ~/mi-proyecto
 ```
 
-## Compilar en Windows
+Opciones: `./build.sh debug`, `./build.sh --clean`, y `QT_DIR=~/Qt/6.8.3/gcc_64 ./build.sh` para
+usar otro Qt. El ejecutable queda en `build/linux/BatCode`.
 
-Necesitas **Visual Studio 2022** (carga de trabajo «Desarrollo para el escritorio con C++»),
-**Qt 6** (instalador oficial de qt.io, componente *MSVC 2022 64-bit*) y **vcpkg** para libgit2.
-
-```powershell
-# 1) vcpkg (una sola vez)
-git clone https://github.com/microsoft/vcpkg C:\vcpkg
-C:\vcpkg\bootstrap-vcpkg.bat
-
-# 2) Configurar y compilar (desde "x64 Native Tools Command Prompt for VS 2022")
-cd F:\Repository\BatCode
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ^
-      -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake ^
-      -DCMAKE_PREFIX_PATH=C:/Qt/6.7.3/msvc2019_64
-cmake --build build
-
-# 3) Copiar las DLL de Qt junto al ejecutable
-C:\Qt\6.7.3\msvc2019_64\bin\windeployqt.exe build\BatCode.exe
-build\BatCode.exe
-```
-
-vcpkg lee `vcpkg.json` e instala libgit2 automáticamente, y su DLL se copia sola junto al `.exe`.
-Ajusta `CMAKE_PREFIX_PATH` a la versión y la carpeta de Qt que tengas instaladas.
-Si prefieres no usar el instalador de Qt, puedes añadir `"qtbase"` a las dependencias de
-`vcpkg.json` (la primera compilación tarda bastante).
-
-También puedes abrir la carpeta directamente en Visual Studio o en Qt Creator, porque ambos
-entienden `CMakeLists.txt`.
+También puedes abrir la carpeta en Visual Studio, Qt Creator o CLion: todos entienden
+`CMakeLists.txt`.
 
 ## Estructura
 

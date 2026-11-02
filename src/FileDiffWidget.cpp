@@ -4,6 +4,7 @@
 #include "Theme.h"
 
 #include <QHBoxLayout>
+#include <QContextMenuEvent>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QScrollBar>
@@ -92,8 +93,8 @@ namespace {
 class ClickableHeader : public QWidget
 {
 public:
-    explicit ClickableHeader(std::function<void()> onClick, QWidget *parent)
-        : QWidget(parent), m_onClick(std::move(onClick))
+    ClickableHeader(std::function<void()> onClick, std::function<void(const QPoint &)> onMenu, QWidget *parent)
+        : QWidget(parent), m_onClick(std::move(onClick)), m_onMenu(std::move(onMenu))
     {
         setCursor(Qt::PointingHandCursor);
         setAutoFillBackground(true);
@@ -108,9 +109,11 @@ protected:
         if (e->button() == Qt::LeftButton)
             m_onClick();
     }
+    void contextMenuEvent(QContextMenuEvent *e) override { m_onMenu(e->globalPos()); }
 
 private:
     std::function<void()> m_onClick;
+    std::function<void(const QPoint &)> m_onMenu;
 };
 
 } // namespace
@@ -121,7 +124,8 @@ FileDiffWidget::FileDiffWidget(const GitRepository::FileChange &change, QWidget 
 {
     const Theme::Colors &c = Theme::colors();
 
-    auto *header = new ClickableHeader([this] { setExpanded(!m_expanded); }, this);
+    auto *header = new ClickableHeader([this] { setExpanded(!m_expanded); },
+                                       [this](const QPoint &pos) { Q_EMIT contextMenuRequested(pos); }, this);
     m_toggle = new QToolButton(header);
     m_toggle->setAutoRaise(true);
     m_toggle->setFixedWidth(22);

@@ -65,6 +65,13 @@ public:
         QString patch;       // solo los bloques "@@ ... @@" del diff unificado
     };
 
+    struct BlameLine {
+        QString commitId;    // vacío si la línea aún no está confirmada
+        QString author;
+        QDateTime time;
+        QString text;
+    };
+
     GitRepository();
     ~GitRepository();
     GitRepository(const GitRepository &) = delete;
@@ -91,6 +98,8 @@ public:
     QList<FileChange> commitChanges(const QString &commitId) const;
     QList<FileChange> workingChanges(bool staged) const;
     QString resolveCommit(const QString &revspec) const;
+    QList<CommitInfo> fileHistory(const QString &path, int maxCount = 500) const;
+    QList<BlameLine> blame(const QString &path) const;   // usa el contenido actual del archivo
 
     // --- Acciones ---
     bool stage(const QString &path);

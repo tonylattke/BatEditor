@@ -74,13 +74,13 @@ bool EditorTab::load(const QString &path, QString *error)
             *error = file.errorString();
         return false;
     }
-    const QByteArray data = file.readAll();
+    const QByteArray bytes = file.readAll();
 
     // UTF-8 por defecto; si no es UTF-8 válido, se interpreta como Latin-1
     QStringDecoder decoder(QStringDecoder::Utf8, QStringDecoder::Flag::Stateless);
-    QString text = decoder.decode(data);
+    QString text = decoder.decode(bytes);
     if (decoder.hasError())
-        text = QString::fromLatin1(data);
+        text = QString::fromLatin1(bytes);
     if (text.startsWith(QChar(0xFEFF)))
         text.remove(0, 1);
 

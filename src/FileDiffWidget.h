@@ -36,6 +36,9 @@ public:
     bool isExpanded() const { return m_expanded; }
     const GitRepository::FileChange &change() const { return m_change; }
 
+Q_SIGNALS:
+    void contextMenuRequested(const QPoint &globalPos);   // clic derecho en la cabecera
+
 private:
     GitRepository::FileChange m_change;
     QToolButton *m_toggle;

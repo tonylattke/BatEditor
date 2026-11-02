@@ -17,6 +17,7 @@
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QLabel>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSettings>
@@ -29,6 +30,23 @@
 #include <QTextBlock>
 #include <QTreeView>
 #include <QVBoxLayout>
+
+#include <utility>
+
+namespace {
+
+// QMenu::addAction(texto, atajo, receptor, función) solo existe desde Qt 6.3;
+// esta versión funciona también con Qt 6.2 (Ubuntu 22.04).
+template <typename Context, typename Func>
+QAction *addMenuAction(QMenu *menu, const QString &text, const QKeySequence &shortcut, Context *context, Func &&func)
+{
+    QAction *action = menu->addAction(text);
+    action->setShortcut(shortcut);
+    QObject::connect(action, &QAction::triggered, context, std::forward<Func>(func));
+    return action;
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Modelo del explorador: muestra la carpeta abierta como nodo raíz (como
@@ -233,18 +251,18 @@ void MainWindow::createMenus()
 
     // --- Archivo ------------------------------------------------------------
     QMenu *file = menuBar()->addMenu(tr("&Archivo"));
-    file->addAction(tr("Nuevo archivo"), QKeySequence::New, this, [this] {
+    addMenuAction(file, tr("Nuevo archivo"), QKeySequence::New, this, [this] {
         setMode(ModeSwitch::Editor);
         newTab();
     });
-    file->addAction(tr("Abrir archivo…"), QKeySequence::Open, this, [this] {
+    addMenuAction(file, tr("Abrir archivo…"), QKeySequence::Open, this, [this] {
         const QStringList files = QFileDialog::getOpenFileNames(this, tr("Abrir archivo"), m_rootPath);
         if (!files.isEmpty())
             setMode(ModeSwitch::Editor);
         for (const QString &f : files)
             openFile(f);
     });
-    file->addAction(tr("Abrir carpeta…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O), this, [this] {
+    addMenuAction(file, tr("Abrir carpeta…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O), this, [this] {
         const QString dir = QFileDialog::getExistingDirectory(this, tr("Abrir carpeta"), m_rootPath);
         if (!dir.isEmpty()) {
             openFolder(dir);
@@ -252,100 +270,100 @@ void MainWindow::createMenus()
         }
     });
     file->addSeparator();
-    file->addAction(tr("Guardar"), QKeySequence::Save, this, [this] {
+    addMenuAction(file, tr("Guardar"), QKeySequence::Save, this, [this] {
         if (EditorTab *t = currentTab())
             saveTab(t);
     });
-    file->addAction(tr("Guardar como…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S), this, [this] {
+    addMenuAction(file, tr("Guardar como…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S), this, [this] {
         if (EditorTab *t = currentTab())
             saveTabAs(t);
     });
-    file->addAction(tr("Guardar todo"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_S), this, [this] {
+    addMenuAction(file, tr("Guardar todo"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_S), this, [this] {
         for (int i = 0; i < m_tabs->count(); ++i)
             if (EditorTab *t = tabAt(i); t && t->isModified())
                 saveTab(t);
     });
     file->addSeparator();
-    file->addAction(tr("Cerrar pestaña"), QKeySequence(Qt::CTRL | Qt::Key_W), this, [this] {
+    addMenuAction(file, tr("Cerrar pestaña"), QKeySequence(Qt::CTRL | Qt::Key_W), this, [this] {
         if (m_pages->currentWidget() == m_git)
             m_git->closeCurrent();
         else if (m_tabs->currentIndex() >= 0)
             closeTab(m_tabs->currentIndex());
     });
-    file->addAction(tr("Salir"), QKeySequence(Qt::CTRL | Qt::Key_Q), this, &QWidget::close);
+    addMenuAction(file, tr("Salir"), QKeySequence(Qt::CTRL | Qt::Key_Q), this, &QWidget::close);
 
     // --- Editar -------------------------------------------------------------
     QMenu *edit = menuBar()->addMenu(tr("&Editar"));
-    edit->addAction(tr("Deshacer"), QKeySequence::Undo, this, onEditor([](CodeEditor *e) { e->undo(); }));
-    edit->addAction(tr("Rehacer"), QKeySequence(Qt::CTRL | Qt::Key_Y), this, onEditor([](CodeEditor *e) { e->redo(); }));
+    addMenuAction(edit, tr("Deshacer"), QKeySequence::Undo, this, onEditor([](CodeEditor *e) { e->undo(); }));
+    addMenuAction(edit, tr("Rehacer"), QKeySequence(Qt::CTRL | Qt::Key_Y), this, onEditor([](CodeEditor *e) { e->redo(); }));
     edit->addSeparator();
-    edit->addAction(tr("Cortar"), QKeySequence::Cut, this, onEditor([](CodeEditor *e) { e->cutAll(); }));
-    edit->addAction(tr("Copiar"), QKeySequence::Copy, this, onEditor([](CodeEditor *e) { e->copyAll(); }));
-    edit->addAction(tr("Pegar"), QKeySequence::Paste, this, onEditor([](CodeEditor *e) { e->pasteAll(); }));
+    addMenuAction(edit, tr("Cortar"), QKeySequence::Cut, this, onEditor([](CodeEditor *e) { e->cutAll(); }));
+    addMenuAction(edit, tr("Copiar"), QKeySequence::Copy, this, onEditor([](CodeEditor *e) { e->copyAll(); }));
+    addMenuAction(edit, tr("Pegar"), QKeySequence::Paste, this, onEditor([](CodeEditor *e) { e->pasteAll(); }));
     edit->addSeparator();
-    edit->addAction(tr("Comentar / descomentar líneas"), QKeySequence(Qt::CTRL | Qt::Key_Slash), this,
+    addMenuAction(edit, tr("Comentar / descomentar líneas"), QKeySequence(Qt::CTRL | Qt::Key_Slash), this,
                     onEditor([](CodeEditor *e) { e->toggleLineComment(); }));
-    edit->addAction(tr("Duplicar líneas"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_D), this,
+    addMenuAction(edit, tr("Duplicar líneas"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_D), this,
                     onEditor([](CodeEditor *e) { e->duplicateLines(); }));
-    edit->addAction(tr("Aumentar sangría"), QKeySequence(Qt::CTRL | Qt::Key_BracketRight), this,
+    addMenuAction(edit, tr("Aumentar sangría"), QKeySequence(Qt::CTRL | Qt::Key_BracketRight), this,
                     onEditor([](CodeEditor *e) { e->indentSelection(false); }));
-    edit->addAction(tr("Reducir sangría"), QKeySequence(Qt::CTRL | Qt::Key_BracketLeft), this,
+    addMenuAction(edit, tr("Reducir sangría"), QKeySequence(Qt::CTRL | Qt::Key_BracketLeft), this,
                     onEditor([](CodeEditor *e) { e->indentSelection(true); }));
 
     // --- Selección ----------------------------------------------------------
     QMenu *sel = menuBar()->addMenu(tr("&Selección"));
-    sel->addAction(tr("Seleccionar todo"), QKeySequence::SelectAll, this, onEditor([](CodeEditor *e) {
+    addMenuAction(sel, tr("Seleccionar todo"), QKeySequence::SelectAll, this, onEditor([](CodeEditor *e) {
         e->clearExtraCursors();
         e->selectAll();
     }));
     sel->addSeparator();
-    sel->addAction(tr("Añadir siguiente coincidencia"), QKeySequence(Qt::CTRL | Qt::Key_D), this,
+    addMenuAction(sel, tr("Añadir siguiente coincidencia"), QKeySequence(Qt::CTRL | Qt::Key_D), this,
                    onEditor([](CodeEditor *e) { e->addNextOccurrence(); }));
-    sel->addAction(tr("Seleccionar todas las coincidencias"), QKeySequence(Qt::ALT | Qt::Key_F3), this,
+    addMenuAction(sel, tr("Seleccionar todas las coincidencias"), QKeySequence(Qt::ALT | Qt::Key_F3), this,
                    onEditor([](CodeEditor *e) { e->selectAllOccurrencesOfSelection(); }));
-    sel->addAction(tr("Dividir selección en líneas"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_L), this,
+    addMenuAction(sel, tr("Dividir selección en líneas"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_L), this,
                    onEditor([](CodeEditor *e) { e->splitSelectionIntoLines(); }));
-    sel->addAction(tr("Añadir cursor arriba"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_Up), this,
+    addMenuAction(sel, tr("Añadir cursor arriba"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_Up), this,
                    onEditor([](CodeEditor *e) { e->addCursorAbove(); }));
-    sel->addAction(tr("Añadir cursor abajo"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_Down), this,
+    addMenuAction(sel, tr("Añadir cursor abajo"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_Down), this,
                    onEditor([](CodeEditor *e) { e->addCursorBelow(); }));
     sel->addAction(tr("Volver a un solo cursor  (Esc)"), this,
                    onEditor([](CodeEditor *e) { e->clearExtraCursors(); }));
 
     // --- Buscar -------------------------------------------------------------
     QMenu *find = menuBar()->addMenu(tr("&Buscar"));
-    find->addAction(tr("Buscar…"), QKeySequence::Find, this, [this] {
+    addMenuAction(find, tr("Buscar…"), QKeySequence::Find, this, [this] {
         if (EditorTab *t = currentTab())
             t->findBar()->showFind(false);
     });
-    find->addAction(tr("Reemplazar…"), QKeySequence(Qt::CTRL | Qt::Key_H), this, [this] {
+    addMenuAction(find, tr("Reemplazar…"), QKeySequence(Qt::CTRL | Qt::Key_H), this, [this] {
         if (EditorTab *t = currentTab())
             t->findBar()->showFind(true);
     });
-    find->addAction(tr("Buscar siguiente"), QKeySequence(Qt::Key_F3), this,
+    addMenuAction(find, tr("Buscar siguiente"), QKeySequence(Qt::Key_F3), this,
                     onEditor([](CodeEditor *e) { e->findNext(false); }));
-    find->addAction(tr("Buscar anterior"), QKeySequence(Qt::SHIFT | Qt::Key_F3), this,
+    addMenuAction(find, tr("Buscar anterior"), QKeySequence(Qt::SHIFT | Qt::Key_F3), this,
                     onEditor([](CodeEditor *e) { e->findNext(true); }));
 
     // --- Ir -----------------------------------------------------------------
     QMenu *go = menuBar()->addMenu(tr("&Ir"));
-    go->addAction(tr("Ir a archivo…"), QKeySequence(Qt::CTRL | Qt::Key_P), this, &MainWindow::quickOpen);
-    go->addAction(tr("Ir a línea…"), QKeySequence(Qt::CTRL | Qt::Key_G), this, &MainWindow::goToLine);
+    addMenuAction(go, tr("Ir a archivo…"), QKeySequence(Qt::CTRL | Qt::Key_P), this, &MainWindow::quickOpen);
+    addMenuAction(go, tr("Ir a línea…"), QKeySequence(Qt::CTRL | Qt::Key_G), this, &MainWindow::goToLine);
     go->addSeparator();
-    go->addAction(tr("Pestaña siguiente"), QKeySequence(Qt::CTRL | Qt::Key_PageDown), this, [this] {
+    addMenuAction(go, tr("Pestaña siguiente"), QKeySequence(Qt::CTRL | Qt::Key_PageDown), this, [this] {
         if (m_tabs->count() > 0)
             m_tabs->setCurrentIndex((m_tabs->currentIndex() + 1) % m_tabs->count());
     });
-    go->addAction(tr("Pestaña anterior"), QKeySequence(Qt::CTRL | Qt::Key_PageUp), this, [this] {
+    addMenuAction(go, tr("Pestaña anterior"), QKeySequence(Qt::CTRL | Qt::Key_PageUp), this, [this] {
         if (m_tabs->count() > 0)
             m_tabs->setCurrentIndex((m_tabs->currentIndex() - 1 + m_tabs->count()) % m_tabs->count());
     });
 
     // --- Ver ----------------------------------------------------------------
     QMenu *view = menuBar()->addMenu(tr("&Ver"));
-    view->addAction(tr("Modo editor"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), this,
+    addMenuAction(view, tr("Modo editor"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), this,
                     [this] { setMode(ModeSwitch::Editor); });
-    view->addAction(tr("Modo Git"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_G), this,
+    addMenuAction(view, tr("Modo Git"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_G), this,
                     [this] { setMode(ModeSwitch::Git); });
     view->addSeparator();
     QAction *sidebar = view->addAction(tr("Barra lateral"));
@@ -363,8 +381,8 @@ void MainWindow::createMenus()
             if (EditorTab *t = tabAt(i))
                 t->editor()->setLineWrapMode(on ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
     });
-    view->addAction(tr("Aumentar fuente"), QKeySequence(Qt::CTRL | Qt::Key_Equal), this, [this] { changeFontSize(+1); });
-    view->addAction(tr("Reducir fuente"), QKeySequence(Qt::CTRL | Qt::Key_Minus), this, [this] { changeFontSize(-1); });
+    addMenuAction(view, tr("Aumentar fuente"), QKeySequence(Qt::CTRL | Qt::Key_Equal), this, [this] { changeFontSize(+1); });
+    addMenuAction(view, tr("Reducir fuente"), QKeySequence(Qt::CTRL | Qt::Key_Minus), this, [this] { changeFontSize(-1); });
 
     // --- Git ----------------------------------------------------------------
     QMenu *git = menuBar()->addMenu(tr("&Git"));
@@ -372,12 +390,12 @@ void MainWindow::createMenus()
         setMode(ModeSwitch::Git);
         m_git->promptOpenRepository();
     });
-    git->addAction(tr("Actualizar"), QKeySequence(Qt::Key_F5), this, [this] { m_git->refreshCurrent(); });
+    addMenuAction(git, tr("Actualizar"), QKeySequence(Qt::Key_F5), this, [this] { m_git->refreshCurrent(); });
     git->addAction(tr("Cerrar repositorio"), this, [this] { m_git->closeCurrent(); });
 
     // --- Ayuda --------------------------------------------------------------
     QMenu *help = menuBar()->addMenu(tr("A&yuda"));
-    help->addAction(tr("Atajos de teclado"), QKeySequence(Qt::Key_F1), this, &MainWindow::showShortcuts);
+    addMenuAction(help, tr("Atajos de teclado"), QKeySequence(Qt::Key_F1), this, &MainWindow::showShortcuts);
     help->addAction(tr("Acerca de BatCode"), this, [this] {
         QMessageBox::about(this, tr("Acerca de BatCode"),
                            tr("<h3>BatCode %1</h3>"

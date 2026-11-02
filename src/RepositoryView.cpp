@@ -13,6 +13,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
@@ -20,6 +21,13 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QShortcut>
+#include <QSyntaxHighlighter>
+#include <QDesktopServices>
+#include <QFile>
+#include <QFileInfo>
+#include <QProcess>
+#include <QUrl>
 #include <QSplitter>
 #include <QStyledItemDelegate>
 #include <QTabWidget>
@@ -46,6 +54,9 @@ enum Roles {
     KeyRole,      // Archivos: clave del widget de diff
     TargetRole,   // Ubicaciones: commit destino
     RefKindRole,  // Ubicaciones: tipo de referencia
+    FilePathRole, // Archivos: ruta relativa
+    SectionRole,  // Archivos: staged / unstaged / untracked / commit
+    CodeRole,     // Archivos: código de estado
 };
 
 enum RefKind { RefNone, RefBranch, RefRemoteBranch, RefTag, RefStash, RefOther };
@@ -284,6 +295,17 @@ void RepositoryView::buildUi()
     m_files = new QListWidget(this);
     m_files->setObjectName(QStringLiteral("fileList"));
     m_files->setUniformItemSizes(true);
+    m_files->setSelectionMode(QAbstractItemView::ExtendedSelection); // Ctrl+clic y Shift+clic
+    m_files->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_files, &QListWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        if (m_files->itemAt(pos) && !selectedFiles().isEmpty())
+            showFileMenu(m_files->viewport()->mapToGlobal(pos));
+    });
+    for (int key : {int(Qt::Key_Return), int(Qt::Key_Enter)}) {
+        auto *sc = new QShortcut(QKeySequence(Qt::SHIFT | key), m_files);
+        sc->setContext(Qt::WidgetShortcut);
+        connect(sc, &QShortcut::activated, this, &RepositoryView::toggleStageSelected);
+    }
     connect(m_files, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) {
         const QString key = item->data(KeyRole).toString();
         if (!key.isEmpty())
@@ -560,7 +582,13 @@ void RepositoryView::showWorkingDirectory()
     layout->addWidget(form);
 
     // --- Lista de archivos (pestaña "Archivos") ---
+    // Se conserva la selección por ruta (un archivo preparado sigue seleccionado en su nueva sección)
+    QSet<QString> previouslySelected;
+    if (m_filesAreWorking)
+        for (const FileRef &f : selectedFiles())
+            previouslySelected.insert(f.path);
     m_files->clear();
+    m_filesAreWorking = true;
     auto addFileHeader = [this](const QString &text) {
         auto *h = new QListWidgetItem(text.toUpper(), m_files);
         h->setFlags(Qt::NoItemFlags);
@@ -621,7 +649,16 @@ void RepositoryView::showWorkingDirectory()
             auto *fi = new QListWidgetItem(QStringLiteral("%1   %2").arg(f.code == QLatin1Char('?') ? QLatin1Char('U') : f.code).arg(f.path), m_files);
             fi->setForeground(colorForChangeCode(f.code));
             fi->setData(KeyRole, key);
+            fi->setData(FilePathRole, f.path);
+            fi->setData(SectionRole, id);
+            fi->setData(CodeRole, QString(f.code));
             fi->setToolTip(describeChangeCode(f.code));
+            if (previouslySelected.contains(f.path))
+                fi->setSelected(true);
+            connect(w, &FileDiffWidget::contextMenuRequested, this, [this, key](const QPoint &pos) {
+                selectFileForMenu(key);
+                showFileMenu(pos);
+            });
         }
     };
     addSection(QStringLiteral("staged"), tr("Preparados"), staged, tr("Quitar todo"), [this] { return m_repo.unstageAll(); });
@@ -751,6 +788,7 @@ void RepositoryView::showCommit(const QString &commitId)
     actions->addWidget(totals);
 
     m_files->clear();
+    m_filesAreWorking = false;
     QHash<QString, QPointer<FileDiffWidget>> widgets;
     const bool many = changes.size() > 40;
     for (const auto &f : changes) {
@@ -769,6 +807,13 @@ void RepositoryView::showCommit(const QString &commitId)
         auto *fi = new QListWidgetItem(QStringLiteral("%1   %2").arg(f.code).arg(f.path), m_files);
         fi->setForeground(colorForChangeCode(f.code));
         fi->setData(KeyRole, key);
+        fi->setData(FilePathRole, f.path);
+        fi->setData(SectionRole, QStringLiteral("commit"));
+        fi->setData(CodeRole, QString(f.code));
+        connect(w, &FileDiffWidget::contextMenuRequested, this, [this, key](const QPoint &pos) {
+            selectFileForMenu(key);
+            showFileMenu(pos);
+        });
         fi->setToolTip(QStringLiteral("%1  (+%2 −%3)").arg(describeChangeCode(f.code)).arg(f.additions).arg(f.deletions));
     }
     layout->addStretch(1);
@@ -869,4 +914,395 @@ bool RepositoryView::eventFilter(QObject *watched, QEvent *event)
         }
     }
     return QWidget::eventFilter(watched, event);
+}
+
+// ---------------------------------------------------------------------------
+// Archivos: selección múltiple y menú contextual
+// ---------------------------------------------------------------------------
+namespace {
+
+constexpr QChar kBlameSeparator(0x2502); // │
+
+// Colorea la columna de blame (commit, autor, fecha, línea) de una vista de blame.
+class BlameHighlighter : public QSyntaxHighlighter
+{
+public:
+    using QSyntaxHighlighter::QSyntaxHighlighter;
+
+protected:
+    void highlightBlock(const QString &text) override
+    {
+        const Theme::Colors &c = Theme::colors();
+        const int first = text.indexOf(kBlameSeparator);
+        const int second = first >= 0 ? text.indexOf(kBlameSeparator, first + 1) : -1;
+        if (second < 0)
+            return;
+        QTextCharFormat muted;
+        muted.setForeground(c.muted);
+        setFormat(0, second + 1, muted);
+        QTextCharFormat sha;
+        sha.setForeground(c.function);
+        const int space = text.indexOf(QLatin1Char(' '));
+        if (space > 0 && !text.startsWith(QLatin1Char(' ')))
+            setFormat(0, space, sha);
+    }
+};
+
+// Vista de solo lectura que avisa del doble clic en una línea.
+class BlameView : public QPlainTextEdit
+{
+public:
+    explicit BlameView(std::function<void(int)> onDoubleClick, QWidget *parent)
+        : QPlainTextEdit(parent), m_onDoubleClick(std::move(onDoubleClick))
+    {
+        setReadOnly(true);
+        setLineWrapMode(QPlainTextEdit::NoWrap);
+        setFont(Theme::editorFont());
+        setFrameShape(QFrame::NoFrame);
+        QPalette p = palette();
+        p.setColor(QPalette::Base, Theme::colors().background);
+        setPalette(p);
+    }
+
+protected:
+    void mouseDoubleClickEvent(QMouseEvent *e) override
+    {
+        m_onDoubleClick(cursorForPosition(e->position().toPoint()).blockNumber());
+    }
+
+private:
+    std::function<void(int)> m_onDoubleClick;
+};
+
+QString plural(int n, const QString &one, const QString &many)
+{
+    return n == 1 ? one : many.arg(n);
+}
+
+} // namespace
+
+QString RepositoryView::absolutePath(const QString &path) const
+{
+    return QDir(m_repo.workdir()).absoluteFilePath(path);
+}
+
+QList<RepositoryView::FileRef> RepositoryView::selectedFiles() const
+{
+    QList<FileRef> refs;
+    for (int i = 0; i < m_files->count(); ++i) {
+        const QListWidgetItem *item = m_files->item(i);
+        if (!item->isSelected() || item->data(FilePathRole).toString().isEmpty())
+            continue;
+        const QString code = item->data(CodeRole).toString();
+        refs.append({item->data(FilePathRole).toString(), item->data(SectionRole).toString(),
+                     code.isEmpty() ? QChar() : code.at(0)});
+    }
+    return refs;
+}
+
+void RepositoryView::selectFileForMenu(const QString &key)
+{
+    // Clic derecho en un archivo del detalle: si ya forma parte de la selección se
+    // conserva (para actuar sobre varios); si no, pasa a ser el único seleccionado.
+    for (int i = 0; i < m_files->count(); ++i) {
+        QListWidgetItem *item = m_files->item(i);
+        if (item->data(KeyRole).toString() != key)
+            continue;
+        if (!item->isSelected()) {
+            m_files->clearSelection();
+            item->setSelected(true);
+        }
+        m_files->setCurrentItem(item, QItemSelectionModel::NoUpdate);
+        return;
+    }
+}
+
+void RepositoryView::showFileMenu(const QPoint &globalPos)
+{
+    const QList<FileRef> files = selectedFiles();
+    if (files.isEmpty())
+        return;
+    const int n = int(files.size());
+    const bool single = n == 1;
+    const FileRef first = files.first();
+
+    QList<FileRef> stageable, staged, discardable, onDisk;
+    for (const FileRef &f : files) {
+        if (f.section == QLatin1String("staged"))
+            staged << f;
+        else if (f.section == QLatin1String("unstaged") || f.section == QLatin1String("untracked"))
+            stageable << f;
+        if (f.section == QLatin1String("unstaged") && f.code != QLatin1Char('?'))
+            discardable << f;
+        if (QFileInfo::exists(absolutePath(f.path)))
+            onDisk << f;
+    }
+
+    QMenu menu(this);
+    const QKeySequence stageKey(Qt::SHIFT | Qt::Key_Enter); // se muestra como "Shift+Enter"
+
+    // --- Preparar / quitar / descartar / borrar ---
+    if (!stageable.isEmpty()) {
+        QAction *a = menu.addAction(plural(int(stageable.size()), tr("Preparar archivo"), tr("Preparar %1 archivos")),
+                                    this, [this, stageable] { stageFiles(stageable, true); });
+        a->setShortcut(stageKey);
+    }
+    if (!staged.isEmpty()) {
+        QAction *a = menu.addAction(plural(int(staged.size()), tr("Quitar de preparados"),
+                                           tr("Quitar %1 archivos de preparados")),
+                                    this, [this, staged] { stageFiles(staged, false); });
+        if (stageable.isEmpty())
+            a->setShortcut(stageKey);
+    }
+    if (!discardable.isEmpty())
+        menu.addAction(plural(int(discardable.size()), tr("Descartar cambios…"), tr("Descartar cambios de %1 archivos…")),
+                       this, [this, discardable] { discardFiles(discardable); });
+    if (first.section != QLatin1String("commit") && !onDisk.isEmpty())
+        menu.addAction(plural(int(onDisk.size()), tr("Borrar archivo…"), tr("Borrar %1 archivos…")),
+                       this, [this, onDisk] { deleteFiles(onDisk); });
+    if (!menu.isEmpty())
+        menu.addSeparator();
+
+    // --- Historial y blame (un solo archivo) ---
+    QAction *history = menu.addAction(tr("Historial del archivo"), this, [this, first] { showFileHistory(first.path); });
+    history->setEnabled(single && first.code != QLatin1Char('?'));
+    QAction *blame = menu.addAction(tr("Blame"), this, [this, first] { showBlame(first.path); });
+    const bool hasHistory = first.code != QLatin1Char('?')
+        && !(first.section == QLatin1String("staged") && first.code == QLatin1Char('A'));
+    blame->setEnabled(single && hasHistory && onDisk.size() == 1);
+    menu.addSeparator();
+
+    // --- Abrir / copiar ---
+    QAction *open = menu.addAction(plural(int(onDisk.size()), tr("Abrir en el editor…"), tr("Abrir %1 archivos en el editor…")),
+                                   this, [this, onDisk] {
+                                       for (const FileRef &f : onDisk)
+                                           Q_EMIT openFileRequested(absolutePath(f.path));
+                                   });
+    open->setEnabled(!onDisk.isEmpty());
+    menu.addAction(tr("Abrir carpeta contenedora…"), this, [this, first] { openContainingFolder(first.path); });
+    menu.addAction(plural(n, tr("Copiar ruta del archivo"), tr("Copiar rutas de los %1 archivos")), this, [this, files] {
+        QStringList paths;
+        for (const FileRef &f : files)
+            paths << QDir::toNativeSeparators(absolutePath(f.path));
+        QApplication::clipboard()->setText(paths.join(QLatin1Char('\n')));
+        Q_EMIT statusMessage(tr("Ruta copiada al portapapeles"));
+    });
+    menu.addAction(plural(n, tr("Copiar ruta relativa"), tr("Copiar rutas relativas")), this, [this, files] {
+        QStringList paths;
+        for (const FileRef &f : files)
+            paths << f.path;
+        QApplication::clipboard()->setText(paths.join(QLatin1Char('\n')));
+        Q_EMIT statusMessage(tr("Ruta copiada al portapapeles"));
+    });
+
+    menu.exec(globalPos);
+}
+
+void RepositoryView::toggleStageSelected()
+{
+    QList<FileRef> toStage, toUnstage;
+    for (const FileRef &f : selectedFiles()) {
+        if (f.section == QLatin1String("staged"))
+            toUnstage << f;
+        else if (f.section != QLatin1String("commit"))
+            toStage << f;
+    }
+    if (toStage.isEmpty() && toUnstage.isEmpty())
+        return;
+    bool ok = true;
+    for (const FileRef &f : toStage)
+        ok = m_repo.stage(f.path) && ok;
+    for (const FileRef &f : toUnstage)
+        ok = m_repo.unstage(f.path) && ok;
+    report(ok, tr("preparar o quitar los archivos"));
+    reload();
+}
+
+void RepositoryView::stageFiles(const QList<FileRef> &files, bool stage)
+{
+    bool ok = true;
+    for (const FileRef &f : files)
+        ok = (stage ? m_repo.stage(f.path) : m_repo.unstage(f.path)) && ok;
+    report(ok, stage ? tr("preparar") : tr("quitar de preparados"));
+    reload();
+}
+
+void RepositoryView::discardFiles(const QList<FileRef> &files)
+{
+    QStringList names;
+    for (const FileRef &f : files)
+        names << f.path;
+    const auto answer = QMessageBox::warning(
+        this, tr("Descartar cambios"),
+        tr("¿Descartar los cambios sin preparar de estos archivos?\n\n%1\n\nEsta acción no se puede deshacer.")
+            .arg(names.join(QLatin1Char('\n'))),
+        QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Cancel);
+    if (answer != QMessageBox::Discard)
+        return;
+    bool ok = true;
+    for (const FileRef &f : files)
+        ok = m_repo.discard(f.path) && ok;
+    report(ok, tr("descartar"));
+    reload();
+}
+
+void RepositoryView::deleteFiles(const QList<FileRef> &files)
+{
+    QStringList names;
+    for (const FileRef &f : files)
+        names << f.path;
+    const auto answer = QMessageBox::question(
+        this, tr("Borrar archivos"),
+        tr("¿Mover a la papelera estos archivos?\n\n%1").arg(names.join(QLatin1Char('\n'))),
+        QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+    if (answer != QMessageBox::Yes)
+        return;
+    QStringList failed;
+    for (const FileRef &f : files)
+        if (!QFile::moveToTrash(absolutePath(f.path)))
+            failed << f.path;
+    if (!failed.isEmpty())
+        QMessageBox::warning(this, tr("Borrar archivos"),
+                             tr("No se pudieron mover a la papelera:\n\n%1").arg(failed.join(QLatin1Char('\n'))));
+    else
+        Q_EMIT statusMessage(plural(int(files.size()), tr("Archivo movido a la papelera"),
+                                    tr("%1 archivos movidos a la papelera")));
+    reload();
+}
+
+void RepositoryView::openContainingFolder(const QString &path)
+{
+    const QString abs = absolutePath(path);
+    const QFileInfo info(abs);
+#ifdef Q_OS_WIN
+    if (info.exists()) {
+        // Abre el Explorador con el archivo seleccionado
+        QProcess process;
+        process.setProgram(QStringLiteral("explorer.exe"));
+        process.setNativeArguments(QStringLiteral("/select,\"%1\"").arg(QDir::toNativeSeparators(abs)));
+        if (process.startDetached())
+            return;
+    }
+#endif
+    QString dir = info.absolutePath();
+    while (!QFileInfo(dir).isDir() && dir.size() > m_repo.workdir().size())
+        dir = QFileInfo(dir).absolutePath();
+    QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+}
+
+QWidget *RepositoryView::backHeader(const QString &title, QWidget *parent)
+{
+    auto *bar = new QWidget(parent);
+    bar->setAutoFillBackground(true);
+    QPalette p = bar->palette();
+    p.setColor(QPalette::Window, Theme::colors().backgroundAlt);
+    bar->setPalette(p);
+    auto *l = new QHBoxLayout(bar);
+    l->setContentsMargins(10, 6, 10, 6);
+    auto *back = new QToolButton(bar);
+    back->setText(tr("← Volver"));
+    connect(back, &QToolButton::clicked, this, &RepositoryView::showSelection);
+    auto *label = new QLabel(title, bar);
+    label->setTextFormat(Qt::RichText);
+    l->addWidget(back);
+    l->addSpacing(8);
+    l->addWidget(label, 1);
+    return bar;
+}
+
+void RepositoryView::showFileHistory(const QString &path)
+{
+    const QList<GitRepository::CommitInfo> history = m_repo.fileHistory(path);
+    const QHash<QString, QStringList> labels = m_repo.refLabels();
+    const QString head = m_repo.headCommitId();
+
+    auto *content = new QWidget;
+    auto *layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    layout->addWidget(backHeader(tr("<b>Historial</b> de %1 &nbsp;<span style='color:%2'>%3</span>")
+                                     .arg(path.toHtmlEscaped(), Theme::colors().muted.name(),
+                                          plural(int(history.size()), tr("1 commit"), tr("%1 commits"))),
+                                 content));
+
+    if (history.isEmpty()) {
+        auto *empty = mutedLabel(tr("Este archivo no aparece en ningún commit de la rama actual."), content);
+        empty->setAlignment(Qt::AlignCenter);
+        empty->setContentsMargins(0, 40, 0, 0);
+        layout->addWidget(empty);
+        layout->addStretch(1);
+    } else {
+        auto *list = new QListWidget(content);
+        list->setItemDelegate(new CommitDelegate(list));
+        list->setMouseTracking(true);
+        list->setUniformItemSizes(true);
+        list->setFrameShape(QFrame::NoFrame);
+        for (const auto &ci : history) {
+            auto *item = new QListWidgetItem(list);
+            item->setData(KindRole, 1);
+            item->setData(IdRole, ci.id);
+            item->setData(SummaryRole, ci.summary);
+            item->setData(AuthorRole, ci.author);
+            item->setData(DateRole, formatDate(ci.time));
+            item->setData(LabelsRole, labels.value(ci.id));
+            item->setData(MergeRole, ci.parentCount > 1);
+            item->setData(HeadRole, ci.id == head);
+            item->setToolTip(tr("Clic para ver el commit completo"));
+        }
+        connect(list, &QListWidget::itemClicked, this,
+                [this](QListWidgetItem *item) { selectCommit(item->data(IdRole).toString()); });
+        layout->addWidget(list, 1);
+    }
+    setDetailWidget(content);
+}
+
+void RepositoryView::showBlame(const QString &path)
+{
+    const QList<GitRepository::BlameLine> lines = m_repo.blame(path);
+    if (lines.isEmpty() && QFileInfo(absolutePath(path)).size() > 0) {
+        report(false, tr("calcular el blame de %1").arg(path));
+        return;
+    }
+
+    // Columna: SHA corto, autor, fecha y número de línea; solo al empezar cada bloque
+    constexpr int kAuthorWidth = 16;
+    const int numberWidth = int(QString::number(lines.size()).size());
+    QStringList out;
+    QStringList commitPerLine;
+    QString previous = QStringLiteral("-");
+    for (int i = 0; i < lines.size(); ++i) {
+        const GitRepository::BlameLine &l = lines.at(i);
+        QString info;
+        if (l.commitId != previous) {
+            if (l.commitId.isEmpty()) {
+                info = tr("·······  sin confirmar");
+            } else {
+                QString author = l.author.left(kAuthorWidth);
+                info = QStringLiteral("%1  %2  %3").arg(l.commitId.left(7), author.leftJustified(kAuthorWidth),
+                                                        l.time.toString(QStringLiteral("yyyy-MM-dd")));
+            }
+        }
+        const int infoWidth = 7 + 2 + kAuthorWidth + 2 + 10;
+        out << QStringLiteral("%1 %2 %3 %4 %5")
+                   .arg(info.leftJustified(infoWidth, QLatin1Char(' '), true), QString(kBlameSeparator),
+                        QString::number(i + 1).rightJustified(numberWidth), QString(kBlameSeparator), l.text);
+        commitPerLine << l.commitId;
+        previous = l.commitId;
+    }
+
+    auto *content = new QWidget;
+    auto *layout = new QVBoxLayout(content);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    layout->addWidget(backHeader(tr("<b>Blame</b> de %1 &nbsp;<span style='color:%2'>doble clic en una línea para ver su commit</span>")
+                                     .arg(path.toHtmlEscaped(), Theme::colors().muted.name()),
+                                 content));
+    auto *view = new BlameView([this, commitPerLine](int line) {
+        if (line >= 0 && line < commitPerLine.size() && !commitPerLine.at(line).isEmpty())
+            selectCommit(commitPerLine.at(line));
+    }, content);
+    new BlameHighlighter(view->document());
+    view->setPlainText(out.join(QLatin1Char('\n')));
+    layout->addWidget(view, 1);
+    setDetailWidget(content);
 }

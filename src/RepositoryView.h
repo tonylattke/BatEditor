@@ -43,6 +43,26 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
+    // Un archivo seleccionado en la pestaña "Archivos"
+    struct FileRef {
+        QString path;      // relativo al repositorio
+        QString section;   // "staged", "unstaged", "untracked" o "commit"
+        QChar code;
+    };
+
+    QList<FileRef> selectedFiles() const;
+    void selectFileForMenu(const QString &key);
+    void showFileMenu(const QPoint &globalPos);
+    void toggleStageSelected();
+    void stageFiles(const QList<FileRef> &files, bool stage);
+    void discardFiles(const QList<FileRef> &files);
+    void deleteFiles(const QList<FileRef> &files);
+    void showFileHistory(const QString &path);
+    void showBlame(const QString &path);
+    void openContainingFolder(const QString &path);
+    QWidget *backHeader(const QString &title, QWidget *parent);
+    QString absolutePath(const QString &path) const;
+
     void buildUi();
     void reloadLocations();
     void reloadCommits();
@@ -72,5 +92,6 @@ private:
     bool m_workingSelected = true;       // "cambios actuales" seleccionado
     QString m_selectedCommit;            // si no, el commit mostrado
     QString m_commitDraft;               // mensaje de commit en edición
+    bool m_filesAreWorking = false;      // la pestaña "Archivos" muestra los cambios actuales
     QHash<QString, QPointer<FileDiffWidget>> m_fileWidgets;
 };

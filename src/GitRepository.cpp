@@ -1,6 +1,7 @@
 #include "GitRepository.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 
 #include <git2.h>
@@ -812,4 +813,142 @@ bool GitRepository::commit(const QString &message, QString *newCommitId)
         *newCommitId = QString::fromLatin1(buf);
     }
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Historial de un archivo y blame
+// ---------------------------------------------------------------------------
+namespace {
+
+// SHA del contenido de `path` en el árbol del commit (vacío si no existe)
+QString blobIdAt(git_commit *commit, const QByteArray &path)
+{
+    git_tree *tree = nullptr;
+    if (git_commit_tree(&tree, commit) != 0)
+        return QString();
+    TreePtr treeHolder(tree);
+    git_tree_entry *entry = nullptr;
+    if (git_tree_entry_bypath(&entry, tree, path.constData()) != 0)
+        return QString();
+    const QString id = oidToString(git_tree_entry_id(entry));
+    git_tree_entry_free(entry);
+    return id;
+}
+
+} // namespace
+
+QList<GitRepository::CommitInfo> GitRepository::fileHistory(const QString &path, int maxCount) const
+{
+    constexpr int kMaxScanned = 20000;
+    QList<CommitInfo> result;
+    if (!m_repo)
+        return result;
+    git_revwalk *wRaw = nullptr;
+    if (!check(git_revwalk_new(&wRaw, m_repo), "revwalk"))
+        return result;
+    RevwalkPtr walk(wRaw);
+    git_revwalk_sorting(walk.get(), GIT_SORT_TOPOLOGICAL | GIT_SORT_TIME);
+    if (git_revwalk_push_head(walk.get()) != 0)
+        return result;
+
+    const QByteArray p = path.toUtf8();
+    git_oid oid;
+    int scanned = 0;
+    while (result.size() < maxCount && scanned++ < kMaxScanned && git_revwalk_next(&oid, walk.get()) == 0) {
+        git_commit *cRaw = nullptr;
+        if (git_commit_lookup(&cRaw, m_repo, &oid) != 0)
+            continue;
+        CommitPtr commit(cRaw);
+        const QString mine = blobIdAt(commit.get(), p);
+
+        // Como "git log -- <ruta>": el commit cuenta si el archivo difiere de todos sus padres
+        const unsigned parents = git_commit_parentcount(commit.get());
+        bool changed = parents == 0 ? !mine.isEmpty() : true;
+        for (unsigned i = 0; i < parents && changed; ++i) {
+            git_commit *pRaw = nullptr;
+            if (git_commit_parent(&pRaw, commit.get(), i) != 0)
+                continue;
+            CommitPtr parent(pRaw);
+            if (blobIdAt(parent.get(), p) == mine)
+                changed = false;
+        }
+        if (!changed)
+            continue;
+
+        CommitInfo info;
+        info.id = oidToString(&oid);
+        info.shortId = info.id.left(7);
+        info.summary = QString::fromUtf8(git_commit_summary(commit.get()));
+        const git_signature *author = git_commit_author(commit.get());
+        info.author = QString::fromUtf8(author->name);
+        info.time = QDateTime::fromSecsSinceEpoch(author->when.time);
+        info.parentCount = int(parents);
+        result << info;
+    }
+    return result;
+}
+
+QList<GitRepository::BlameLine> GitRepository::blame(const QString &path) const
+{
+    QList<BlameLine> result;
+    if (!m_repo)
+        return result;
+
+    git_blame_options opts = GIT_BLAME_OPTIONS_INIT;
+    git_blame *base = nullptr;
+    const QByteArray p = path.toUtf8();
+    if (!check(git_blame_file(&base, m_repo, p.constData(), &opts), "blame"))
+        return result;
+
+    // Contenido actual del archivo, para incluir las líneas aún no confirmadas
+    QFile file(m_workdir + QLatin1Char('/') + path);
+    QByteArray data;
+    if (file.open(QIODevice::ReadOnly))
+        data = file.readAll();
+
+    git_blame *current = nullptr;
+    git_blame *use = base;
+    if (!data.isNull() && git_blame_buffer(&current, base, data.constData(), size_t(data.size())) == 0)
+        use = current;
+
+    // Autor y fecha por commit (la firma del bloque puede faltar con git_blame_buffer)
+    QHash<QString, QPair<QString, QDateTime>> authors;
+    auto authorOf = [this, &authors](const git_oid *oid) {
+        const QString id = oidToString(oid);
+        if (!authors.contains(id)) {
+            QPair<QString, QDateTime> info;
+            git_commit *c = nullptr;
+            if (git_commit_lookup(&c, m_repo, oid) == 0) {
+                const git_signature *a = git_commit_author(c);
+                info = {QString::fromUtf8(a->name), QDateTime::fromSecsSinceEpoch(a->when.time)};
+                git_commit_free(c);
+            }
+            authors.insert(id, info);
+        }
+        return authors.value(id);
+    };
+
+    QList<QByteArray> lines = data.split('\n');
+    if (!lines.isEmpty() && lines.last().isEmpty())
+        lines.removeLast();
+    for (int i = 0; i < lines.size(); ++i) {
+        BlameLine line;
+        QByteArray text = lines.at(i);
+        if (text.endsWith('\r'))
+            text.chop(1);
+        line.text = QString::fromUtf8(text);
+        if (const git_blame_hunk *hunk = git_blame_get_hunk_byline(use, size_t(i) + 1)) {
+            if (!git_oid_is_zero(&hunk->final_commit_id)) {
+                line.commitId = oidToString(&hunk->final_commit_id);
+                const auto info = authorOf(&hunk->final_commit_id);
+                line.author = info.first;
+                line.time = info.second;
+            }
+        }
+        result << line;
+    }
+    if (current)
+        git_blame_free(current);
+    git_blame_free(base);
+    return result;
 }
