@@ -4,8 +4,56 @@
 #include <QFontDatabase>
 #include <QPalette>
 #include <QStyleFactory>
+#include <QMouseEvent>
+#include <QTabBar>
+#include <QTabWidget>
 
 namespace Theme {
+
+namespace {
+// Filtro sobre la barra de pestañas: cierra la pestaña si se pulsa y se suelta
+// el botón central sobre ella (si se arrastra a otra, no hace nada).
+class MiddleClickCloser : public QObject
+{
+public:
+    MiddleClickCloser(QTabWidget *tabs) : QObject(tabs), m_tabs(tabs) {}
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        auto *bar = qobject_cast<QTabBar *>(watched);
+        if (!bar)
+            return false;
+        if (event->type() == QEvent::MouseButtonPress) {
+            auto *e = static_cast<QMouseEvent *>(event);
+            if (e->button() == Qt::MiddleButton) {
+                m_pressed = bar->tabAt(e->position().toPoint());
+                return m_pressed >= 0;
+            }
+        } else if (event->type() == QEvent::MouseButtonRelease) {
+            auto *e = static_cast<QMouseEvent *>(event);
+            if (e->button() == Qt::MiddleButton) {
+                const int index = bar->tabAt(e->position().toPoint());
+                const bool hit = index >= 0 && index == m_pressed;
+                m_pressed = -1;
+                if (hit && m_tabs->tabsClosable())
+                    Q_EMIT m_tabs->tabCloseRequested(index);
+                return hit;
+            }
+        }
+        return false;
+    }
+
+private:
+    QTabWidget *m_tabs;
+    int m_pressed = -1;
+};
+} // namespace
+
+void enableMiddleClickClose(QTabWidget *tabs)
+{
+    tabs->tabBar()->installEventFilter(new MiddleClickCloser(tabs));
+}
 
 const Colors &colors()
 {

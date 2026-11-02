@@ -70,6 +70,7 @@ GitWorkspace::GitWorkspace(QWidget *parent)
 
     // --- Pestañas de repositorios ---
     m_tabs->setTabsClosable(true);
+    Theme::enableMiddleClickClose(m_tabs);
     m_tabs->setMovable(true);
     m_tabs->setDocumentMode(true);
     m_tabs->tabBar()->setExpanding(false);

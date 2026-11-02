@@ -6,6 +6,8 @@
 class QApplication;
 
 // Paleta oscura propia de BatCode ("Noche").
+class QTabWidget;
+
 namespace Theme {
 
 struct Colors {
@@ -46,5 +48,9 @@ const Colors &colors();
 QFont editorFont(int pointSize = 10);
 QFont uiFont();
 void apply(QApplication &app);
+
+// Clic con la rueda (botón central) sobre una pestaña = cerrarla, como en Sublime.
+// Emite tabCloseRequested(i), así que pasa por el mismo camino que la ✕.
+void enableMiddleClickClose(QTabWidget *tabs);
 
 } // namespace Theme

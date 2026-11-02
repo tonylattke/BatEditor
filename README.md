@@ -74,6 +74,8 @@ archivos abiertos.
     binarios y la carpeta `.git`.
   - **Reemplazar** pide confirmación: en las pestañas abiertas el cambio se hace en el editor
     (se puede deshacer) y el resto de archivos se guarda en disco conservando CRLF/LF y BOM.
+- **Clic central** (rueda del ratón) sobre una pestaña la cierra, igual que la ✕; también en las
+  pestañas de repositorios del modo Git.
 - `Ctrl+P`: ir a archivo con búsqueda difusa. `Ctrl+G`: ir a línea.
 - Barra de estado con línea y columna, número de cursores, sangría y lenguaje.
 - Respeta los finales de línea CRLF/LF de cada archivo y guarda de forma atómica.

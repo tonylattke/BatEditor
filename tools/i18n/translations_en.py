@@ -381,6 +381,8 @@ EN = {
 
 # Tabla de atajos (HTML): se traduce por frases
 SHORTCUT_PHRASES = [
+    ('Clic central en una pestaña', 'Middle-click a tab'),
+    ('Cerrar la pestaña (archivo o repositorio)', 'Close the tab (file or repository)'),
     ('Buscar en archivos (resultados en una pestaña; Enter o doble clic abre la línea)', 'Find in Files (results in a tab; Enter or double-click opens the line)'),
     ('Resultado siguiente / anterior', 'Next / previous result'),
     ("Atajos de BatCode", "BatCode shortcuts"),

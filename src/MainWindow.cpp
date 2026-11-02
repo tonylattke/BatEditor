@@ -226,6 +226,7 @@ QWidget *MainWindow::createEditorPage()
     m_tabs->tabBar()->setExpanding(false);
     m_tabs->tabBar()->setElideMode(Qt::ElideNone);
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int i) { closeTab(i); });
+    Theme::enableMiddleClickClose(m_tabs);
     connect(m_tabs, &QTabWidget::currentChanged, this, [this] {
         updateWindowTitle();
         updateStatus();
@@ -781,6 +782,7 @@ void MainWindow::showShortcuts()
 <tr><td><b>Ctrl+/</b></td><td>Comentar / descomentar</td></tr>
 <tr><td><b>Ctrl+Shift+D</b></td><td>Duplicar líneas</td></tr>
 <tr><td><b>Tab / Shift+Tab</b></td><td>Sangrar / quitar sangría</td></tr>
+<tr><td><b>Clic central en una pestaña</b></td><td>Cerrar la pestaña (archivo o repositorio)</td></tr>
 <tr><td><b>Ctrl+B</b></td><td>Mostrar / ocultar el explorador de carpetas</td></tr>
 <tr><td><b>F5</b></td><td>Actualizar el repositorio (modo Git)</td></tr>
 <tr><td><b>Ctrl+Alt+P / Ctrl+Alt+Shift+P</b></td><td>Pull / opciones de pull</td></tr>
