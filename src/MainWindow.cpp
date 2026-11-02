@@ -3,6 +3,7 @@
 #include "CodeEditor.h"
 #include "EditorTab.h"
 #include "FindBar.h"
+#include "FindInFilesPanel.h"
 #include "GitWorkspace.h"
 #include "PreferencesDialog.h"
 #include "QuickOpenDialog.h"
@@ -23,6 +24,8 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QProcess>
+#include <QSaveFile>
+#include <QStringDecoder>
 #include <QSettings>
 #include <QSortFilterProxyModel>
 #include <QSplitter>
@@ -233,9 +236,28 @@ QWidget *MainWindow::createEditorPage()
             newTab();
     });
 
+    // --- Panel "Buscar en archivos" bajo las pestañas ---
+    m_findPanel = new FindInFilesPanel(this);
+    m_findPanel->setWorkspaceProvider([this] { return findWorkspace(); });
+    connect(m_findPanel, &FindInFilesPanel::searchFinished, this, [this](const FindInFiles::Results &r) {
+        showFindResults(r, false);
+    });
+    connect(m_findPanel, &FindInFilesPanel::replaceSearchFinished, this, &MainWindow::applyReplaceInFiles);
+    connect(m_findPanel, &FindInFilesPanel::closeRequested, this, [this] {
+        m_findPanel->hide();
+        if (CodeEditor *e = currentEditor())
+            e->setFocus();
+    });
+    auto *editorArea = new QWidget(this);
+    auto *areaLayout = new QVBoxLayout(editorArea);
+    areaLayout->setContentsMargins(0, 0, 0, 0);
+    areaLayout->setSpacing(0);
+    areaLayout->addWidget(m_tabs, 1);
+    areaLayout->addWidget(m_findPanel);
+
     m_editorSplitter = new QSplitter(Qt::Horizontal, this);
     m_editorSplitter->addWidget(m_sidebar);
-    m_editorSplitter->addWidget(m_tabs);
+    m_editorSplitter->addWidget(editorArea);
     m_editorSplitter->setStretchFactor(0, 0);
     m_editorSplitter->setStretchFactor(1, 1);
     m_editorSplitter->setSizes({300, 1100});
@@ -352,6 +374,11 @@ void MainWindow::createMenus()
                     onEditor([](CodeEditor *e) { e->findNext(false); }));
     addMenuAction(find, tr("Buscar anterior"), QKeySequence(Qt::SHIFT | Qt::Key_F3), this,
                     onEditor([](CodeEditor *e) { e->findNext(true); }));
+    find->addSeparator();
+    addMenuAction(find, tr("Buscar en archivos…"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F), this,
+                  &MainWindow::showFindInFiles);
+    addMenuAction(find, tr("Resultado siguiente"), QKeySequence(Qt::Key_F4), this, [this] { gotoResult(+1); });
+    addMenuAction(find, tr("Resultado anterior"), QKeySequence(Qt::SHIFT | Qt::Key_F4), this, [this] { gotoResult(-1); });
 
     // --- Ir -----------------------------------------------------------------
     QMenu *go = menuBar()->addMenu(tr("&Ir"));
@@ -658,6 +685,8 @@ bool MainWindow::maybeSave(EditorTab *tab)
 
 bool MainWindow::saveTab(EditorTab *tab)
 {
+    if (tab->kind() != EditorTab::Kind::File)
+        return true;
     if (tab->isUntitled())
         return saveTabAs(tab);
     QString error;
@@ -672,6 +701,8 @@ bool MainWindow::saveTab(EditorTab *tab)
 
 bool MainWindow::saveTabAs(EditorTab *tab)
 {
+    if (tab->kind() != EditorTab::Kind::File)
+        return true;
     const QString start = tab->isUntitled() ? m_rootPath : tab->filePath();
     const QString path = QFileDialog::getSaveFileName(this, tr("Guardar como"), start);
     if (path.isEmpty())
@@ -739,6 +770,8 @@ void MainWindow::showShortcuts()
 <tr><td><b>Ctrl+P</b></td><td>Ir a archivo</td></tr>
 <tr><td><b>Ctrl+G</b></td><td>Ir a línea</td></tr>
 <tr><td><b>Ctrl+F / Ctrl+H</b></td><td>Buscar / Reemplazar (Alt+Enter: un cursor por coincidencia)</td></tr>
+<tr><td><b>Ctrl+Shift+F</b></td><td>Buscar en archivos (resultados en una pestaña; Enter o doble clic abre la línea)</td></tr>
+<tr><td><b>F4 / Shift+F4</b></td><td>Resultado siguiente / anterior</td></tr>
 <tr><td><b>Ctrl+Clic</b></td><td>Añadir o quitar un cursor</td></tr>
 <tr><td><b>Ctrl+D</b></td><td>Seleccionar palabra / añadir siguiente coincidencia</td></tr>
 <tr><td><b>Alt+F3</b></td><td>Seleccionar todas las coincidencias</td></tr>
@@ -899,4 +932,199 @@ void MainWindow::restartApplication()
         return;
     QProcess::startDetached(QCoreApplication::applicationFilePath(), {});
     qApp->quit();
+}
+
+// ---------------------------------------------------------------------------
+// Buscar en archivos
+// ---------------------------------------------------------------------------
+FindInFiles::Workspace MainWindow::findWorkspace() const
+{
+    FindInFiles::Workspace ws;
+    if (!m_rootPath.isEmpty())
+        ws.openFolders << m_rootPath;
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        EditorTab *t = tabAt(i);
+        if (!t || t->kind() != EditorTab::Kind::File || t->isUntitled())
+            continue;
+        ws.openFiles << t->filePath();
+        ws.buffers.insert(QDir::cleanPath(t->filePath()), t->editor()->toPlainText());
+    }
+    return ws;
+}
+
+void MainWindow::showFindInFiles()
+{
+    setMode(ModeSwitch::Editor);
+    QString initial;
+    if (CodeEditor *e = currentEditor()) {
+        const QString sel = e->textCursor().selectedText();
+        if (!sel.isEmpty() && !sel.contains(QChar::ParagraphSeparator))
+            initial = sel;
+    }
+    m_findPanel->activate(initial);
+}
+
+EditorTab *MainWindow::resultsTab(bool forceNew)
+{
+    if (!forceNew && m_resultsTab)
+        return m_resultsTab;
+    auto *tab = new EditorTab(EditorTab::Kind::FindResults, m_tabs);
+    tab->editor()->setFont(Theme::editorFont(m_fontSize));
+    connect(tab, &EditorTab::locationActivated, this, [this, tab](const FindInFiles::Location &loc) {
+        m_resultsTab = tab;
+        m_resultIndex = tab->matchIndexAtCursor();
+        openLocation(loc);
+    });
+    connect(tab, &EditorTab::titleChanged, this, [this, tab] { updateTabTitle(tab); });
+    m_tabs->addTab(tab, tab->displayName());
+    m_resultsTab = tab;
+    return tab;
+}
+
+void MainWindow::showFindResults(const FindInFiles::Results &results, bool replaced, int replacedFiles)
+{
+    const FindInFiles::Options &o = results.options;
+    QStringList flags;
+    if (o.regex)
+        flags << tr("expresión regular");
+    if (o.caseSensitive)
+        flags << tr("distingue mayúsculas");
+    if (o.wholeWord)
+        flags << tr("palabra completa");
+    QString title = replaced
+        ? tr("Reemplazado \"%1\" por \"%2\" en %3 archivos").arg(o.pattern, o.replacement).arg(replacedFiles)
+        : tr("Buscando \"%1\" en %2 archivos").arg(o.pattern).arg(results.filesSearched);
+    if (!flags.isEmpty())
+        title += QStringLiteral(" (%1)").arg(flags.join(QStringLiteral(", ")));
+
+    FindInFiles::Document doc = FindInFiles::buildDocument(results, title);
+    QString footer = results.totalMatches == 1 ? tr("1 coincidencia en 1 archivo")
+                                               : tr("%1 coincidencias en %2 archivos").arg(results.totalMatches).arg(results.files.size());
+    if (results.truncated)
+        footer += tr(" (límite alcanzado: la búsqueda se detuvo)");
+    if (results.cancelled)
+        footer += tr(" (búsqueda detenida)");
+    doc.text += QLatin1Char('\n') + footer + QLatin1Char('\n');
+
+    EditorTab *tab = resultsTab(m_findPanel->resultsInNewTab());
+    tab->setFindResults(doc);
+    m_tabs->setCurrentWidget(tab);
+    updateTabTitle(tab);
+    m_resultIndex = -1;
+    statusBar()->showMessage(footer, 5000);
+}
+
+void MainWindow::openLocation(const FindInFiles::Location &loc)
+{
+    if (!openFile(loc.path))
+        return;
+    CodeEditor *e = currentEditor();
+    if (!e)
+        return;
+    const QTextBlock block = e->document()->findBlockByNumber(qMax(0, loc.line - 1));
+    if (!block.isValid())
+        return;
+    QTextCursor c(block);
+    const int start = block.position() + qMin(loc.column, block.length() - 1);
+    c.setPosition(start);
+    if (loc.length > 0)
+        c.setPosition(qMin(start + loc.length, block.position() + block.length() - 1), QTextCursor::KeepAnchor);
+    e->clearExtraCursors();
+    e->setTextCursor(c);
+    e->centerCursor();
+    e->setFocus();
+}
+
+void MainWindow::gotoResult(int step)
+{
+    if (!m_resultsTab)
+        return;
+    const QList<FindInFiles::Location> matches = m_resultsTab->matchLocations();
+    if (matches.isEmpty())
+        return;
+    m_resultIndex = (m_resultIndex < 0 && step < 0) ? int(matches.size()) - 1
+                                                     : (m_resultIndex + step + int(matches.size())) % int(matches.size());
+    m_resultsTab->revealMatch(m_resultIndex);
+    setMode(ModeSwitch::Editor);
+    openLocation(matches.at(m_resultIndex));
+    statusBar()->showMessage(tr("Resultado %1 de %2").arg(m_resultIndex + 1).arg(matches.size()), 3000);
+}
+
+void MainWindow::applyReplaceInFiles(const FindInFiles::Results &results)
+{
+    const FindInFiles::Options &o = results.options;
+    if (results.totalMatches == 0) {
+        QMessageBox::information(this, tr("Reemplazar en archivos"), tr("No se encontró «%1»: no hay nada que reemplazar.").arg(o.pattern));
+        return;
+    }
+    const auto answer = QMessageBox::question(
+        this, tr("Reemplazar en archivos"),
+        tr("¿Reemplazar %1 coincidencias de «%2» por «%3» en %4 archivos?\n\n"
+           "Los archivos abiertos se cambian en el editor (sin guardar, se puede deshacer); "
+           "los demás se guardan directamente en el disco.")
+            .arg(results.totalMatches).arg(o.pattern, o.replacement).arg(results.files.size()),
+        QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+    if (answer != QMessageBox::Yes)
+        return;
+
+    const QRegularExpression regex = FindInFiles::buildRegex(o);
+    int changedFiles = 0;
+    QStringList failed;
+    for (const FindInFiles::FileResult &fr : results.files) {
+        // ¿Está abierto? Se cambia el contenido del editor como un único paso de deshacer
+        EditorTab *open = nullptr;
+        for (int i = 0; i < m_tabs->count(); ++i)
+            if (EditorTab *t = tabAt(i); t && t->kind() == EditorTab::Kind::File
+                                          && QDir::cleanPath(t->filePath()) == QDir::cleanPath(fr.path))
+                open = t;
+        if (open) {
+            QString text = open->editor()->toPlainText();
+            if (FindInFiles::replaceInText(text, regex, o) > 0) {
+                QTextCursor c(open->editor()->document());
+                c.beginEditBlock();
+                c.select(QTextCursor::Document);
+                c.insertText(text);
+                c.endEditBlock();
+                ++changedFiles;
+            }
+            continue;
+        }
+        QFile file(fr.path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            failed << fr.path;
+            continue;
+        }
+        const QByteArray data = file.readAll();
+        file.close();
+        QStringDecoder decoder(QStringDecoder::Utf8, QStringDecoder::Flag::Stateless);
+        QString text = decoder.decode(data);
+        if (decoder.hasError()) { // no es UTF-8: no se toca para no estropear la codificación
+            failed << fr.path;
+            continue;
+        }
+        const bool bom = text.startsWith(QChar(0xFEFF));
+        if (bom)
+            text.remove(0, 1);
+        if (FindInFiles::replaceInText(text, regex, o) == 0)
+            continue;
+        QSaveFile out(fr.path);
+        if (!out.open(QIODevice::WriteOnly)) {
+            failed << fr.path;
+            continue;
+        }
+        if (bom)
+            out.write("\xEF\xBB\xBF");
+        out.write(text.toUtf8());
+        if (!out.commit())
+            failed << fr.path;
+        else
+            ++changedFiles;
+    }
+    showFindResults(results, true, changedFiles);
+    if (!failed.isEmpty())
+        QMessageBox::warning(this, tr("Reemplazar en archivos"),
+                             tr("No se pudieron cambiar estos archivos (sin permiso o no son UTF-8):\n\n%1")
+                                 .arg(failed.join(QLatin1Char('\n'))));
+    if (!m_rootPath.isEmpty())
+        m_git->refreshRepositoryContaining(m_rootPath + QStringLiteral("/x"));
 }

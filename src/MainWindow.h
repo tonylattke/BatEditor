@@ -1,13 +1,16 @@
 #pragma once
 
+#include "FindInFiles.h"
 #include "ModeSwitch.h"
 
 #include <QMainWindow>
+#include <QPointer>
 
 class CodeEditor;
 class QAction;
 class EditorTab;
 class FolderProxyModel;
+class FindInFilesPanel;
 class GitWorkspace;
 class QFileSystemModel;
 class QLabel;
@@ -59,6 +62,15 @@ private:
     void applyEditorSettings(EditorTab *only = nullptr);
     void restartApplication();
 
+    // Buscar en archivos
+    FindInFiles::Workspace findWorkspace() const;
+    void showFindInFiles();
+    EditorTab *resultsTab(bool forceNew);
+    void showFindResults(const FindInFiles::Results &results, bool replaced, int replacedFiles = 0);
+    void applyReplaceInFiles(const FindInFiles::Results &results);
+    void openLocation(const FindInFiles::Location &location);
+    void gotoResult(int step);
+
     ModeSwitch *m_modeSwitch = nullptr;
     QStackedWidget *m_pages = nullptr;
 
@@ -84,4 +96,7 @@ private:
     bool m_wordWrap = false;
     bool m_showLineNumbers = true;
     QAction *m_wrapAction = nullptr;
+    FindInFilesPanel *m_findPanel = nullptr;
+    QPointer<EditorTab> m_resultsTab;   // la última pestaña de resultados (F4 / Shift+F4)
+    int m_resultIndex = -1;
 };

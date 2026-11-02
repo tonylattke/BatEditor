@@ -58,6 +58,22 @@ archivos abiertos.
 - `Ctrl+/` comenta o descomenta, `Ctrl+Shift+D` duplica líneas.
 - Buscar y reemplazar (`Ctrl+F` / `Ctrl+H`) con texto o regex, mayúsculas y palabra completa.
   En el reemplazo puedes usar grupos (`\1`). Con `Alt+Enter` pones un cursor en cada coincidencia.
+- **Buscar en archivos** (`Ctrl+Shift+F`), como en Sublime Text:
+  - Campos **Buscar**, **Donde** y **Reemplazar**, con historial.
+  - Botones de opción: expresión regular (`.*`), mayúsculas (`Aa`), palabra completa,
+    mostrar contexto, resultados en pestaña nueva, respetar `.gitignore` y conservar
+    mayúsculas al reemplazar (`AB`).
+  - **Donde** acepta una lista separada por comas: carpetas, archivos, filtros (`*.cpp`),
+    exclusiones (`-*.log`, `-build`), `<open folders>` y `<open files>`. Vacío = carpetas
+    abiertas (o archivos abiertos si no hay carpetas). El botón `…` ayuda a rellenarlo.
+  - Los resultados se listan en una pestaña de solo lectura (`Buscando "x" en N archivos`),
+    agrupados por archivo con número de línea, coincidencias resaltadas y líneas de contexto.
+    **Doble clic** o **Enter** sobre una línea abre el archivo en esa línea con la coincidencia
+    seleccionada; `F4` / `Shift+F4` saltan al resultado siguiente / anterior.
+  - Se buscan también los cambios sin guardar de las pestañas abiertas; se omiten archivos
+    binarios y la carpeta `.git`.
+  - **Reemplazar** pide confirmación: en las pestañas abiertas el cambio se hace en el editor
+    (se puede deshacer) y el resto de archivos se guarda en disco conservando CRLF/LF y BOM.
 - `Ctrl+P`: ir a archivo con búsqueda difusa. `Ctrl+G`: ir a línea.
 - Barra de estado con línea y columna, número de cursores, sangría y lenguaje.
 - Respeta los finales de línea CRLF/LF de cada archivo y guarda de forma atómica.
@@ -193,6 +209,8 @@ src/
   EditorTab.*              Pestaña = archivo + barra de búsqueda; carga y guardado
   CodeEditor.*             Editor: números de línea, cursores múltiples, sangría, búsqueda
   FindBar.*                Barra de buscar y reemplazar
+  FindInFiles.*            Motor de "Buscar en archivos": recorrido, búsqueda, reemplazo y formato de resultados
+  FindInFilesPanel.*       Panel Buscar / Donde / Reemplazar (Ctrl+Shift+F)
   QuickOpenDialog.*        Ctrl+P con búsqueda difusa
   SyntaxHighlighter.*      Analizador léxico de resaltado (comentarios y cadenas multilínea)
   LanguageDefinitions.*    Palabras clave y reglas de cada lenguaje

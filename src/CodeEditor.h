@@ -25,6 +25,7 @@ public:
     int indentWidth() const { return m_indentWidth; }
     void setLineCommentToken(const QString &token) { m_lineComment = token; }
     void setShowLineNumbers(bool show);
+    void setPersistentHighlights(const QList<QTextCursor> &ranges);  // resaltados fijos (p. ej. resultados)
 
     // --- Cursores múltiples ---
     int cursorCount() const { return m_extraCursors.size() + 1; }
@@ -107,4 +108,5 @@ private:
     bool m_searchActive = false;
     bool m_searchCaseSensitive = false;
     QList<QTextCursor> m_searchMatches;
+    QList<QTextCursor> m_persistentHighlights;
 };

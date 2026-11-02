@@ -1024,3 +1024,19 @@ QStringList GitRepository::remoteNames() const
     }
     return names;
 }
+
+bool GitRepository::isIgnored(const QString &absolutePath, bool isDirectory) const
+{
+    if (!m_repo)
+        return false;
+    QString rel = QDir(m_workdir).relativeFilePath(absolutePath);
+    if (rel.isEmpty() || rel.startsWith(QLatin1String("..")))
+        return false;
+    if (isDirectory)
+        rel += QLatin1Char('/');
+    int ignored = 0;
+    const QByteArray p = rel.toUtf8();
+    if (git_ignore_path_is_ignored(&ignored, m_repo, p.constData()) != 0)
+        return false;
+    return ignored == 1;
+}

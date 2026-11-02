@@ -7,6 +7,9 @@
 #include "SyntaxHighlighter.h"
 
 #include <QFile>
+#include <QKeyEvent>
+#include <QMouseEvent>
+#include <QTextBlock>
 #include <QFileInfo>
 #include <QSaveFile>
 #include <QStringDecoder>
@@ -28,6 +31,12 @@ EditorTab::EditorTab(Kind kind, QWidget *parent)
         m_editor->setReadOnly(true);
         m_editor->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
         m_highlighter = new DiffHighlighter(m_editor->document());
+    } else if (m_kind == Kind::FindResults) {
+        m_editor->setReadOnly(true);
+        m_editor->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+        m_highlighter = new FindInFiles::ResultsHighlighter(m_editor->document());
+        m_editor->viewport()->installEventFilter(this);
+        m_editor->installEventFilter(this);
     } else {
         m_highlighter = new SyntaxHighlighter(m_editor->document());
         connect(m_editor->document(), &QTextDocument::modificationChanged, this, &EditorTab::titleChanged);
@@ -43,6 +52,8 @@ QString EditorTab::displayName() const
 {
     if (m_kind == Kind::Diff)
         return m_diffTitle;
+    if (m_kind == Kind::FindResults)
+        return tr("Resultados de búsqueda");
     if (m_path.isEmpty())
         return m_untitledIndex > 1 ? tr("sin título %1").arg(m_untitledIndex) : tr("sin título");
     return QFileInfo(m_path).fileName();
@@ -52,6 +63,8 @@ QString EditorTab::languageName() const
 {
     if (m_kind == Kind::Diff)
         return QStringLiteral("Diff");
+    if (m_kind == Kind::FindResults)
+        return tr("Resultados de búsqueda");
     if (auto *sh = qobject_cast<SyntaxHighlighter *>(m_highlighter))
         return sh->language().name;
     return QString();
@@ -137,4 +150,72 @@ void EditorTab::setDiff(const QString &title, const QString &diffText)
     m_diffTitle = title;
     m_editor->setPlainText(diffText);
     Q_EMIT titleChanged();
+}
+
+// ---------------------------------------------------------------------------
+// Resultados de "Buscar en archivos"
+// ---------------------------------------------------------------------------
+void EditorTab::setFindResults(const FindInFiles::Document &document)
+{
+    m_results = document;
+    m_editor->setPlainText(document.text);
+    QList<QTextCursor> highlights;
+    for (const auto &[block, column, length] : document.highlights) {
+        const QTextBlock b = m_editor->document()->findBlockByNumber(block);
+        if (!b.isValid())
+            continue;
+        QTextCursor c(b);
+        c.setPosition(b.position() + column);
+        c.setPosition(b.position() + column + length, QTextCursor::KeepAnchor);
+        highlights << c;
+    }
+    m_editor->setPersistentHighlights(highlights);
+    m_editor->moveCursor(QTextCursor::Start);
+    Q_EMIT titleChanged();
+}
+
+QList<FindInFiles::Location> EditorTab::matchLocations() const
+{
+    QList<FindInFiles::Location> list;
+    for (int block : m_results.matchBlocks)
+        list << m_results.locations.value(block);
+    return list;
+}
+
+int EditorTab::matchIndexAtCursor() const
+{
+    return int(m_results.matchBlocks.indexOf(m_editor->textCursor().blockNumber()));
+}
+
+void EditorTab::revealMatch(int index)
+{
+    if (index < 0 || index >= m_results.matchBlocks.size())
+        return;
+    const QTextBlock b = m_editor->document()->findBlockByNumber(m_results.matchBlocks.at(index));
+    QTextCursor c(b);
+    m_editor->setTextCursor(c);
+    m_editor->centerCursor();
+}
+
+bool EditorTab::eventFilter(QObject *watched, QEvent *event)
+{
+    if (m_kind == Kind::FindResults) {
+        int block = -1;
+        if (watched == m_editor->viewport() && event->type() == QEvent::MouseButtonDblClick) {
+            const auto *me = static_cast<QMouseEvent *>(event);
+            block = m_editor->cursorForPosition(me->position().toPoint()).blockNumber();
+        } else if (watched == m_editor && event->type() == QEvent::KeyPress) {
+            const auto *ke = static_cast<QKeyEvent *>(event);
+            if (ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter)
+                block = m_editor->textCursor().blockNumber();
+        }
+        if (block >= 0) {
+            const auto it = m_results.locations.constFind(block);
+            if (it != m_results.locations.constEnd()) {
+                Q_EMIT locationActivated(it.value());
+                return true;
+            }
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }

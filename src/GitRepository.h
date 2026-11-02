@@ -104,6 +104,7 @@ public:
     bool aheadBehind(int *ahead, int *behind) const;     // respecto a la rama remota
     QStringList remoteNames() const;
     bool isHeadDetached() const;
+    bool isIgnored(const QString &absolutePath, bool isDirectory) const;  // según .gitignore
 
     // --- Acciones ---
     bool stage(const QString &path);

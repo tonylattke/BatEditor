@@ -102,6 +102,12 @@ void CodeEditor::setIndentWidth(int spaces)
     setTabStopDistance(fontMetrics().horizontalAdvance(QLatin1Char(' ')) * m_indentWidth);
 }
 
+void CodeEditor::setPersistentHighlights(const QList<QTextCursor> &ranges)
+{
+    m_persistentHighlights = ranges;
+    updateExtraSelections();
+}
+
 void CodeEditor::setShowLineNumbers(bool show)
 {
     m_showLineNumbers = show;
@@ -219,6 +225,19 @@ void CodeEditor::updateExtraSelections()
         line.cursor = textCursor();
         line.cursor.clearSelection();
         selections << line;
+    }
+
+    // Resaltados fijos (coincidencias en la pestaña de resultados)
+    if (!m_persistentHighlights.isEmpty()) {
+        QTextCharFormat fmt;
+        fmt.setBackground(colors.findMatch);
+        fmt.setForeground(colors.foreground);
+        for (const QTextCursor &c : std::as_const(m_persistentHighlights)) {
+            QTextEdit::ExtraSelection s;
+            s.format = fmt;
+            s.cursor = c;
+            selections << s;
+        }
     }
 
     // Coincidencias de búsqueda
