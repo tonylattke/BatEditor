@@ -79,6 +79,7 @@ archivos abiertos.
 - **Minimapa** a la derecha (como en Sublime): el archivo en miniatura con sus colores y un
   recuadro con la parte visible. Un clic va a esa línea; arrastrar desplaza el editor.
   `Ctrl+Shift+M` (Ver › Mostrar minimapa) o Preferencias lo muestran u ocultan.
+- `Ctrl+Shift+↑` / `Ctrl+Shift+↓`: mover la línea actual (o las seleccionadas) arriba / abajo.
 - `Ctrl+P`: ir a archivo con búsqueda difusa. `Ctrl+G`: ir a línea.
 - Barra de estado con línea y columna, número de cursores, sangría y lenguaje.
 - Respeta los finales de línea CRLF/LF de cada archivo y guarda de forma atómica.

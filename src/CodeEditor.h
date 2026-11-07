@@ -47,6 +47,7 @@ public:
     void pasteAll();
     void toggleLineComment();                       // Ctrl+/
     void duplicateLines();                          // Ctrl+Shift+D
+    void moveLines(bool up);                        // Ctrl+Shift+↑/↓
     void indentSelection(bool unindent);
     void goToLine(int line);
 

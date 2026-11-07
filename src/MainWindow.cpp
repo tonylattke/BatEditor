@@ -434,10 +434,6 @@ void MainWindow::createMenus()
         setMode(ModeSwitch::Git);
         m_git->promptOpenRepository();
     });
-    git->addAction(tr("Clonar repositorio…"), this, [this] {
-        setMode(ModeSwitch::Git);
-        m_git->showHome();
-    });
     addMenuAction(git, tr("Actualizar"), QKeySequence(Qt::Key_F5), this, [this] { m_git->refreshCurrent(); });
     git->addAction(tr("Cerrar repositorio"), this, [this] { m_git->closeCurrent(); });
     git->addSeparator();
@@ -795,6 +791,7 @@ void MainWindow::showShortcuts()
 <tr><td><b>Esc</b></td><td>Volver a un solo cursor</td></tr>
 <tr><td><b>Ctrl+/</b></td><td>Comentar / descomentar</td></tr>
 <tr><td><b>Ctrl+Shift+D</b></td><td>Duplicar líneas</td></tr>
+<tr><td><b>Ctrl+Shift+↑ / ↓</b></td><td>Mover la línea o las líneas seleccionadas arriba / abajo</td></tr>
 <tr><td><b>Tab / Shift+Tab</b></td><td>Sangrar / quitar sangría</td></tr>
 <tr><td><b>Clic central en una pestaña</b></td><td>Cerrar la pestaña (archivo o repositorio)</td></tr>
 <tr><td><b>Ctrl+Shift+M</b></td><td>Mostrar / ocultar el minimapa (clic: ir a esa línea; arrastrar: desplazar)</td></tr>

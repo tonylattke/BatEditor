@@ -403,6 +403,7 @@ EN = {
 
 # Tabla de atajos (HTML): se traduce por frases
 SHORTCUT_PHRASES = [
+    ('Mover la línea o las líneas seleccionadas arriba / abajo', 'Move the line or selected lines up / down'),
     ('Mostrar / ocultar el minimapa (clic: ir a esa línea; arrastrar: desplazar)', 'Show / hide the minimap (click: go to that line; drag: scroll)'),
     ('Clic central en una pestaña', 'Middle-click a tab'),
     ('Cerrar la pestaña (archivo o repositorio)', 'Close the tab (file or repository)'),

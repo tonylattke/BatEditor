@@ -760,6 +760,58 @@ void CodeEditor::duplicateLines()
     group.endEditBlock();
 }
 
+// Mueve la línea del cursor (o las líneas que toca la selección) una posición
+// arriba o abajo, como en Sublime: la línea vecina pasa al otro lado y la
+// selección se conserva. Es un único paso de deshacer.
+void CodeEditor::moveLines(bool up)
+{
+    if (isReadOnly())
+        return;
+    clearExtraCursors();
+    QTextCursor cur = textCursor();
+    const int anchor = cur.anchor();
+    const int position = cur.position();
+    QTextDocument *doc = document();
+    const int start = qMin(anchor, position);
+    const int end = qMax(anchor, position);
+    QTextBlock first = doc->findBlock(start);
+    QTextBlock last = doc->findBlock(end);
+    // Una selección que acaba al principio de una línea no incluye esa línea
+    if (end > start && end == last.position() && last.blockNumber() > first.blockNumber())
+        last = last.previous();
+
+    const QTextBlock neighbor = up ? first.previous() : last.next();
+    if (!neighbor.isValid())
+        return;
+    const QString text = neighbor.text();
+    const int shift = int(text.size()) + 1;
+
+    QTextCursor c(doc);
+    c.beginEditBlock();
+    if (up) {
+        // Copiar la vecina debajo del bloque y después quitarla de arriba
+        c.setPosition(last.position() + last.length() - 1);
+        c.insertText(QLatin1Char('\n') + text);
+        c.setPosition(neighbor.position());
+        c.setPosition(first.position(), QTextCursor::KeepAnchor);
+        c.removeSelectedText();
+    } else {
+        // Quitar la vecina de abajo y después ponerla encima del bloque
+        c.setPosition(last.position() + last.length() - 1);
+        c.setPosition(neighbor.position() + neighbor.length() - 1, QTextCursor::KeepAnchor);
+        c.removeSelectedText();
+        c.setPosition(first.position());
+        c.insertText(text + QLatin1Char('\n'));
+    }
+    c.endEditBlock();
+
+    const int delta = up ? -shift : shift;
+    cur.setPosition(anchor + delta);
+    cur.setPosition(position + delta, QTextCursor::KeepAnchor);
+    setTextCursor(cur);
+    ensureCursorVisible();
+}
+
 void CodeEditor::indentSelection(bool unindent)
 {
     if (isReadOnly())
@@ -811,6 +863,8 @@ bool CodeEditor::isEditorCommand(QKeyEvent *e) const
         return true;
     if (mods == (Qt::ControlModifier | Qt::ShiftModifier) && (key == Qt::Key_L || key == Qt::Key_D))
         return true;
+    if (mods == (Qt::ControlModifier | Qt::ShiftModifier) && (key == Qt::Key_Up || key == Qt::Key_Down))
+        return true;
     if (mods == (Qt::ControlModifier | Qt::AltModifier) && (key == Qt::Key_Up || key == Qt::Key_Down))
         return true;
     if (mods == Qt::AltModifier && key == Qt::Key_F3)
@@ -835,6 +889,8 @@ bool CodeEditor::handleEditorCommand(QKeyEvent *e)
     if (mods == Qt::ControlModifier && key == Qt::Key_Slash) { toggleLineComment(); return true; }
     if (mods == (Qt::ControlModifier | Qt::ShiftModifier) && key == Qt::Key_L) { splitSelectionIntoLines(); return true; }
     if (mods == (Qt::ControlModifier | Qt::ShiftModifier) && key == Qt::Key_D) { duplicateLines(); return true; }
+    if (mods == (Qt::ControlModifier | Qt::ShiftModifier) && key == Qt::Key_Up) { moveLines(true); return true; }
+    if (mods == (Qt::ControlModifier | Qt::ShiftModifier) && key == Qt::Key_Down) { moveLines(false); return true; }
     if (mods == (Qt::ControlModifier | Qt::AltModifier) && key == Qt::Key_Up) { addCursorAbove(); return true; }
     if (mods == (Qt::ControlModifier | Qt::AltModifier) && key == Qt::Key_Down) { addCursorBelow(); return true; }
     if (mods == Qt::AltModifier && key == Qt::Key_F3) { selectAllOccurrencesOfSelection(); return true; }
