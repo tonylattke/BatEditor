@@ -216,6 +216,7 @@ También puedes abrir la carpeta en Visual Studio, Qt Creator o CLion: todos ent
 ## Estructura
 
 ```
+assets/                    Logo (logo.png), icono de Windows (logo.ico) y recursos (batcode.qrc / batcode.rc)
 src/
   main.cpp                 Punto de entrada y argumentos de línea de comandos
   MainWindow.*             Ventana, menús, cambio de modo, explorador de carpetas, pestañas y sesión

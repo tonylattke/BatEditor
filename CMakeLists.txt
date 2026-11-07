@@ -8,6 +8,7 @@ project(BatCode
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Tipo de compilación" FORCE)
@@ -89,6 +90,12 @@ set(BATCODE_SOURCES
     src/ModeSwitch.h           src/ModeSwitch.cpp
     src/MainWindow.h           src/MainWindow.cpp
 )
+
+# Icono: recurso Qt para la ventana y, en Windows, icono del propio .exe
+list(APPEND BATCODE_SOURCES assets/batcode.qrc)
+if(WIN32)
+    list(APPEND BATCODE_SOURCES assets/batcode.rc)
+endif()
 
 add_executable(BatCode ${BATCODE_SOURCES})
 

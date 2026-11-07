@@ -3,12 +3,14 @@
 #include "Theme.h"
 
 #include <QApplication>
+#include <QIcon>
 #include <QCommandLineParser>
 
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("BatCode"));
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/logo.png")));
     QApplication::setOrganizationName(QStringLiteral("BatCode"));
     QApplication::setApplicationVersion(QStringLiteral(BATCODE_VERSION));
     I18n::install(app); // inglés por defecto; español desde Archivo › Preferencias
