@@ -120,3 +120,10 @@ endif()
 install(TARGETS BatCode
     RUNTIME DESTINATION bin
     BUNDLE DESTINATION .)
+
+if(UNIX AND NOT APPLE)
+    install(FILES assets/batcode.desktop DESTINATION share/applications)
+    install(FILES assets/logo.png
+        DESTINATION share/icons/hicolor/256x256/apps
+        RENAME batcode.png)
+endif()

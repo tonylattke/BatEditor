@@ -11,6 +11,8 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("BatCode"));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/logo.png")));
+    // En Linux el escritorio toma el icono de batcode.desktop, no de la ventana
+    QGuiApplication::setDesktopFileName(QStringLiteral("batcode"));
     QApplication::setOrganizationName(QStringLiteral("BatCode"));
     QApplication::setApplicationVersion(QStringLiteral(BATCODE_VERSION));
     I18n::install(app); // inglés por defecto; español desde Archivo › Preferencias

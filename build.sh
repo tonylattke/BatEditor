@@ -39,7 +39,7 @@ bold "==== BatCode: compilación $CONFIG para Linux ===="
 # -----------------------------------------------------------------------------
 # 1) Dependencias
 # -----------------------------------------------------------------------------
-bold "[1/3] Comprobando dependencias..."
+bold "[1/4] Comprobando dependencias..."
 
 has_qt6() {
     [[ -n "${QT_DIR:-}" && -d "${QT_DIR}/lib/cmake/Qt6" ]] && return 0
@@ -111,7 +111,7 @@ echo "      CMake $(cmake --version | head -n1 | awk '{print $3}')"
 # -----------------------------------------------------------------------------
 # 2) Configurar
 # -----------------------------------------------------------------------------
-bold "[2/3] Configurando..."
+bold "[2/4] Configurando..."
 if ((CLEAN)) && [[ -d "$BUILD_DIR" ]]; then
     echo "      Limpiando $BUILD_DIR"
     rm -rf "$BUILD_DIR"
@@ -128,9 +128,24 @@ cmake "${cmake_args[@]}"
 # -----------------------------------------------------------------------------
 # 3) Compilar
 # -----------------------------------------------------------------------------
-bold "[3/3] Compilando..."
+bold "[3/4] Compilando..."
 jobs="$(nproc 2>/dev/null || echo 2)"
 cmake --build "$BUILD_DIR" --parallel "$jobs"
+
+# -----------------------------------------------------------------------------
+# 4) Registrar en el escritorio (solo para el usuario actual)
+# -----------------------------------------------------------------------------
+# GNOME y otros escritorios toman el icono del .desktop, no de la ventana
+bold "[4/4] Registrando icono y lanzador..."
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+ICON_DIR="$DATA_HOME/icons/hicolor/256x256/apps"
+APPS_DIR="$DATA_HOME/applications"
+mkdir -p "$ICON_DIR" "$APPS_DIR"
+cp "$ROOT/assets/logo.png" "$ICON_DIR/batcode.png"
+sed "s|^Exec=.*|Exec=\"$BUILD_DIR/BatCode\" %F|" "$ROOT/assets/batcode.desktop" > "$APPS_DIR/batcode.desktop"
+have update-desktop-database && update-desktop-database "$APPS_DIR" >/dev/null 2>&1 || true
+have gtk-update-icon-cache && gtk-update-icon-cache -q -t "$DATA_HOME/icons/hicolor" >/dev/null 2>&1 || true
+echo "      $APPS_DIR/batcode.desktop"
 
 bold "==== Listo: $BUILD_DIR/BatCode ===="
 echo "     Ejecútalo con ./run.sh"

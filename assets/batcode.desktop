@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=BatCode
+Comment=Editor de texto con Git integrado
+Exec=BatCode %F
+Icon=batcode
+Terminal=false
+Categories=Development;TextEditor;
+StartupWMClass=BatCode

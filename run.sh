@@ -12,7 +12,7 @@ EXE="$ROOT/build/linux/BatCode"
 needs_build=0
 if [[ ! -x "$EXE" ]]; then
     needs_build=1
-elif [[ -n "$(find "$ROOT/src" "$ROOT/CMakeLists.txt" -newer "$EXE" -print -quit 2>/dev/null)" ]]; then
+elif [[ -n "$(find "$ROOT/src" "$ROOT/assets" "$ROOT/CMakeLists.txt" -newer "$EXE" -print -quit 2>/dev/null)" ]]; then
     needs_build=1
 fi
 
