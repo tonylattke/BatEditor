@@ -27,6 +27,7 @@ public:
     bool save(QString *error);
     bool saveAs(const QString &path, QString *error);
     QString filePath() const { return m_path; }
+    void setFilePath(const QString &path);   // el archivo se renombró/movió fuera del editor
     bool isUntitled() const { return m_path.isEmpty(); }
     bool isModified() const;
     QString displayName() const;

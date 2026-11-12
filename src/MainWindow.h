@@ -45,6 +45,13 @@ private:
     EditorTab *currentTab() const;
     CodeEditor *currentEditor() const;
     EditorTab *tabAt(int index) const;
+
+    // Menú contextual del explorador de carpetas
+    void showFolderTreeMenu(const QPoint &pos);
+    void renamePath(const QString &path);
+    void revealInExplorer(const QString &path);
+    void runScript(const QString &path);
+    void openTerminal(const QString &directory);
     EditorTab *newTab();
     bool closeTab(int index);
     bool maybeSave(EditorTab *tab);

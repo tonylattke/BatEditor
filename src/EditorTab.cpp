@@ -70,6 +70,15 @@ QString EditorTab::languageName() const
     return QString();
 }
 
+void EditorTab::setFilePath(const QString &path)
+{
+    if (m_kind != Kind::File || path == m_path)
+        return;
+    m_path = path;
+    applyLanguage();   // la extensión puede haber cambiado
+    Q_EMIT titleChanged();
+}
+
 void EditorTab::applyLanguage()
 {
     if (auto *sh = qobject_cast<SyntaxHighlighter *>(m_highlighter)) {

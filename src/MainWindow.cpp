@@ -12,7 +12,9 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QClipboard>
 #include <QCloseEvent>
+#include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFileSystemModel>
@@ -20,6 +22,7 @@
 #include <QHeaderView>
 #include <QInputDialog>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -27,6 +30,10 @@
 #include <QSaveFile>
 #include <QStringDecoder>
 #include <QSettings>
+#include <QShortcut>
+#include <QStandardPaths>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QSortFilterProxyModel>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -38,6 +45,10 @@
 #include <QVBoxLayout>
 
 #include <utility>
+
+#ifdef Q_OS_WIN
+#include <qt_windows.h>   // CREATE_NEW_CONSOLE
+#endif
 
 namespace {
 
@@ -200,6 +211,15 @@ QWidget *MainWindow::createEditorPage()
         const QModelIndex idx = m_fsProxy->mapToSource(proxyIndex);
         if (!m_fsModel->isDir(idx))
             openFile(m_fsModel->filePath(idx));
+    });
+    // Clic derecho: renombrar, ejecutar .bat, abrir en el explorador, terminal…
+    m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_tree, &QTreeView::customContextMenuRequested, this, &MainWindow::showFolderTreeMenu);
+    auto *renameShortcut = new QShortcut(QKeySequence(Qt::Key_F2), m_tree, nullptr, nullptr, Qt::WidgetShortcut);
+    connect(renameShortcut, &QShortcut::activated, this, [this] {
+        const QModelIndex idx = m_fsProxy->mapToSource(m_tree->currentIndex());
+        if (idx.isValid())
+            renamePath(m_fsModel->filePath(idx));
     });
 
     auto *header = new QLabel(tr("CARPETAS"), this);
@@ -1149,4 +1169,193 @@ void MainWindow::applyReplaceInFiles(const FindInFiles::Results &results)
                                  .arg(failed.join(QLatin1Char('\n'))));
     if (!m_rootPath.isEmpty())
         m_git->refreshRepositoryContaining(m_rootPath + QStringLiteral("/x"));
+}
+
+// ---------------------------------------------------------------------------
+// Menú contextual del explorador de carpetas
+// ---------------------------------------------------------------------------
+namespace {
+bool isRunnableScript(const QFileInfo &info)
+{
+    const QString ext = info.suffix().toLower();
+#ifdef Q_OS_WIN
+    return ext == QLatin1String("bat") || ext == QLatin1String("cmd");
+#else
+    return ext == QLatin1String("sh");
+#endif
+}
+
+#ifdef Q_OS_WIN
+// Lanza un programa de consola en una ventana propia (sin heredar la de BatCode)
+bool startInNewConsole(const QString &program, const QString &nativeArgs, const QString &workdir)
+{
+    QProcess p;
+    p.setProgram(program);
+    p.setNativeArguments(nativeArgs);
+    p.setWorkingDirectory(workdir);
+    p.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *a) {
+        a->flags |= CREATE_NEW_CONSOLE;
+        a->flags &= ~DWORD(CREATE_NO_WINDOW);
+    });
+    return p.startDetached();
+}
+#else
+// Primer emulador de terminal disponible en Linux
+QString linuxTerminal()
+{
+    const QString preferred = qEnvironmentVariable("TERMINAL");
+    if (!preferred.isEmpty() && !QStandardPaths::findExecutable(preferred).isEmpty())
+        return preferred;
+    for (const char *t : {"x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "kitty",
+                          "alacritty", "wezterm", "tilix", "xterm"})
+        if (!QStandardPaths::findExecutable(QLatin1String(t)).isEmpty())
+            return QLatin1String(t);
+    return QString();
+}
+#endif
+} // namespace
+
+void MainWindow::showFolderTreeMenu(const QPoint &pos)
+{
+    const QModelIndex proxyIndex = m_tree->indexAt(pos);
+    if (!proxyIndex.isValid())
+        return;
+    m_tree->setCurrentIndex(proxyIndex);
+    const QString path = m_fsModel->filePath(m_fsProxy->mapToSource(proxyIndex));
+    const QFileInfo info(path);
+
+    QMenu menu(this);
+    if (info.isDir()) {
+        menu.addAction(tr("Abrir terminal aquí"), this, [this, path] { openTerminal(path); });
+        menu.addAction(tr("Abrir en el explorador"), this, [this, path] { revealInExplorer(path); });
+        menu.addSeparator();
+        QAction *rename = menu.addAction(tr("Renombrar…"), this, [this, path] { renamePath(path); });
+        rename->setShortcut(QKeySequence(Qt::Key_F2));
+    } else {
+        menu.addAction(tr("Abrir"), this, [this, path] { openFile(path); });
+        if (isRunnableScript(info))
+            menu.addAction(tr("Ejecutar"), this, [this, path] { runScript(path); });
+        menu.addAction(tr("Abrir la carpeta en el explorador"), this, [this, path] { revealInExplorer(path); });
+        menu.addAction(tr("Abrir terminal en la carpeta"), this,
+                       [this, info] { openTerminal(info.absolutePath()); });
+        menu.addSeparator();
+        QAction *rename = menu.addAction(tr("Renombrar…"), this, [this, path] { renamePath(path); });
+        rename->setShortcut(QKeySequence(Qt::Key_F2));
+    }
+    menu.addSeparator();
+    menu.addAction(tr("Copiar ruta"), this, [path] {
+        QGuiApplication::clipboard()->setText(QDir::toNativeSeparators(path));
+    });
+    menu.exec(m_tree->viewport()->mapToGlobal(pos));
+}
+
+void MainWindow::renamePath(const QString &path)
+{
+    const QFileInfo info(path);
+    if (!info.exists())
+        return;
+    const bool isRoot = QDir::cleanPath(path) == QDir::cleanPath(m_rootPath);
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, info.isDir() ? tr("Renombrar carpeta") : tr("Renombrar archivo"),
+                                               tr("Nuevo nombre:"), QLineEdit::Normal, info.fileName(), &ok)
+                             .trimmed();
+    if (!ok || name.isEmpty() || name == info.fileName())
+        return;
+    if (name.contains(QLatin1Char('/')) || name.contains(QLatin1Char('\\'))) {
+        QMessageBox::warning(this, tr("Renombrar"), tr("El nombre no puede contener «/» ni «\\»."));
+        return;
+    }
+    const QString target = info.dir().filePath(name);
+    // En Windows permitir cambiar solo mayúsculas/minúsculas (a.txt -> A.txt)
+    const bool onlyCase = name.compare(info.fileName(), Qt::CaseInsensitive) == 0;
+    if (QFileInfo::exists(target) && !onlyCase) {
+        QMessageBox::warning(this, tr("Renombrar"), tr("Ya existe «%1» en esa carpeta.").arg(name));
+        return;
+    }
+    if (!QDir().rename(path, target)) {
+        QMessageBox::warning(this, tr("Renombrar"),
+                             tr("No se pudo renombrar «%1».\n\nPuede que esté en uso o que no tengas permiso.")
+                                 .arg(info.fileName()));
+        return;
+    }
+
+    // Las pestañas abiertas siguen al archivo (o a los archivos de la carpeta)
+    const QString oldPrefix = QDir::cleanPath(path) + QLatin1Char('/');
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        EditorTab *t = tabAt(i);
+        if (!t || t->isUntitled())
+            continue;
+        const QString file = QDir::cleanPath(t->filePath());
+        if (file == QDir::cleanPath(path))
+            t->setFilePath(target);
+        else if (info.isDir() && file.startsWith(oldPrefix))
+            t->setFilePath(QDir::cleanPath(target) + QLatin1Char('/') + file.mid(oldPrefix.size()));
+        else
+            continue;
+        m_tabs->setTabToolTip(i, t->filePath());
+    }
+    if (isRoot)
+        openFolder(target);   // se renombró la carpeta abierta
+    statusBar()->showMessage(tr("Renombrado a %1").arg(name), 3000);
+    m_git->refreshRepositoryContaining(target);
+}
+
+void MainWindow::revealInExplorer(const QString &path)
+{
+    const QFileInfo info(path);
+#ifdef Q_OS_WIN
+    QProcess process;
+    process.setProgram(QStringLiteral("explorer.exe"));
+    if (info.isDir())
+        process.setNativeArguments(QStringLiteral("\"%1\"").arg(QDir::toNativeSeparators(info.absoluteFilePath())));
+    else
+        process.setNativeArguments(QStringLiteral("/select,\"%1\"").arg(QDir::toNativeSeparators(info.absoluteFilePath())));
+    if (process.startDetached())
+        return;
+#endif
+    QDesktopServices::openUrl(QUrl::fromLocalFile(info.isDir() ? info.absoluteFilePath() : info.absolutePath()));
+}
+
+void MainWindow::runScript(const QString &path)
+{
+    const QFileInfo info(path);
+    bool started = false;
+#ifdef Q_OS_WIN
+    // cmd /k: la ventana queda abierta al terminar para ver la salida
+    started = startInNewConsole(QStringLiteral("cmd.exe"),
+                                QStringLiteral("/k \"\"%1\"\"").arg(QDir::toNativeSeparators(info.absoluteFilePath())),
+                                info.absolutePath());
+#else
+    const QString terminal = linuxTerminal();
+    const QString command = QStringLiteral("bash '%1'; echo; read -n1 -rsp '%2'")
+                                .arg(QString(info.absoluteFilePath()).replace(QLatin1Char('\''), QLatin1String("'\\''")),
+                                     tr("Pulsa una tecla para cerrar…"));
+    if (!terminal.isEmpty())
+        started = QProcess::startDetached(terminal, {QStringLiteral("-e"), QStringLiteral("bash"), QStringLiteral("-c"), command},
+                                          info.absolutePath());
+#endif
+    if (started)
+        statusBar()->showMessage(tr("Ejecutando %1").arg(info.fileName()), 3000);
+    else
+        QMessageBox::warning(this, tr("Ejecutar"), tr("No se pudo ejecutar «%1».").arg(info.fileName()));
+}
+
+void MainWindow::openTerminal(const QString &directory)
+{
+    const QString dir = QDir::toNativeSeparators(QFileInfo(directory).absoluteFilePath());
+    bool started = false;
+#ifdef Q_OS_WIN
+    // Windows Terminal si está instalado; si no, cmd en una consola nueva
+    const QString wt = QStandardPaths::findExecutable(QStringLiteral("wt"));
+    if (!wt.isEmpty())
+        started = QProcess::startDetached(wt, {QStringLiteral("-d"), dir}, dir);
+    if (!started)
+        started = startInNewConsole(QStringLiteral("cmd.exe"), QStringLiteral("/k"), dir);
+#else
+    const QString terminal = linuxTerminal();
+    if (!terminal.isEmpty())
+        started = QProcess::startDetached(terminal, {}, dir);
+#endif
+    if (!started)
+        QMessageBox::warning(this, tr("Abrir terminal"), tr("No se encontró ninguna terminal para abrir en «%1».").arg(dir));
 }

@@ -80,6 +80,13 @@ archivos abiertos.
   recuadro con la parte visible. Un clic va a esa línea; arrastrar desplaza el editor.
   `Ctrl+Shift+M` (Ver › Mostrar minimapa) o Preferencias lo muestran u ocultan.
 - `Ctrl+Shift+↑` / `Ctrl+Shift+↓`: mover la línea actual (o las seleccionadas) arriba / abajo.
+- **Clic derecho en el panel de carpetas**:
+  - Archivo: abrir, *Ejecutar* (`.bat`/`.cmd` en Windows, `.sh` en Linux; en una consola nueva que
+    queda abierta), abrir la carpeta en el explorador con el archivo seleccionado, abrir una
+    terminal en su carpeta, renombrar (`F2`) y copiar la ruta.
+  - Carpeta: abrir una terminal ahí (Windows Terminal si está instalado, si no `cmd`), abrir en el
+    explorador, renombrar (`F2`) y copiar la ruta.
+  - Al renombrar, las pestañas abiertas de ese archivo (o de los archivos de esa carpeta) se actualizan.
 - `Ctrl+P`: ir a archivo con búsqueda difusa. `Ctrl+G`: ir a línea.
 - Barra de estado con línea y columna, número de cursores, sangría y lenguaje.
 - Respeta los finales de línea CRLF/LF de cada archivo y guarda de forma atómica.
