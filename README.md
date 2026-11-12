@@ -175,8 +175,10 @@ escribiendo, Enter ejecuta y Esc cierra:
 | Merge | `Ctrl+Alt+M` | Eliges la rama (local o remota) y luego `merge`, `merge --no-ff`, `merge --ff-only` o `merge --squash` |
 | Comandos de Git | `Ctrl+Shift+P` | Lo anterior más cambiar de rama, crear rama, `stash`, `stash pop`, `merge --abort`, `rebase --continue`, `rebase --abort` y `fetch --all --prune` |
 
-El clic derecho en las ubicaciones también permite fusionar una rama en la actual y hacer fetch
-de un remoto concreto. Estas operaciones usan **tu programa `git`**, así que funcionan con tus
+El clic derecho en las ubicaciones también permite fusionar una rama en la actual, hacer fetch
+de un remoto concreto y, en las ramas locales, **renombrar** (`git branch -m`) y **eliminar**.
+Eliminar usa `git branch -d` si la rama ya está en la rama actual; si tiene commits propios, avisa
+de que dejarán de verse y usa `-D`. La rama actual no se puede eliminar. Estas operaciones usan **tu programa `git`**, así que funcionan con tus
 credenciales de siempre (Git Credential Manager, claves SSH). Se ejecutan en segundo plano sin
 abrir consolas, con una barra que muestra el progreso. Si algo falla, la barra se queda en rojo
 con la línea del error y el botón «Ver salida».
@@ -272,7 +274,7 @@ tools/i18n/                Script y textos para regenerar las traducciones
 - Preparar cambios por bloque o por línea (*hunks*) desde la vista de diff.
 - Diff lado a lado, números de línea en el diff y vista de *blame*.
 - Grafo real de ramas en la lista de commits.
-- Borrar y renombrar ramas; resolver conflictos dentro de BatCode.
+- Resolver conflictos dentro de BatCode.
 - Búsqueda en el historial.
 - Paleta de comandos para el modo editor.
 - Resaltado con tree-sitter, temas configurables y ajustes en JSON.

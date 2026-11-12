@@ -1022,6 +1022,18 @@ void RepositoryView::showLocationMenu(const QPoint &pos)
             runGit({QStringLiteral("fetch"), QStringLiteral("--progress"), QStringLiteral("--prune"), name});
         });
     }
+    if (kind == RefBranch) {
+        menu.addSeparator();
+        QAction *rename = menu.addAction(tr("Renombrar «%1»…").arg(name), this, [this, name] { renameBranch(name); });
+        QAction *remove = menu.addAction(tr("Eliminar «%1»…").arg(name), this,
+                                         [this, name, target] { deleteBranch(name, target); });
+        rename->setEnabled(!isBusy());
+        remove->setEnabled(!isBusy() && !(name == current && !m_repo.isHeadDetached()));
+        if (!remove->isEnabled() && !isBusy()) {
+            menu.setToolTipsVisible(true);
+            remove->setToolTip(tr("No se puede eliminar la rama actual: cambia antes a otra."));
+        }
+    }
     if (!menu.isEmpty())
         menu.addSeparator();
     if (!target.isEmpty()) {
@@ -1030,6 +1042,36 @@ void RepositoryView::showLocationMenu(const QPoint &pos)
     }
     if (!menu.isEmpty())
         menu.exec(m_locations->viewport()->mapToGlobal(pos));
+}
+
+void RepositoryView::renameBranch(const QString &branch)
+{
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, tr("Renombrar rama"),
+                                               tr("Nuevo nombre para «%1»:").arg(branch),
+                                               QLineEdit::Normal, branch, &ok).trimmed();
+    if (ok && !name.isEmpty() && name != branch)
+        runGit({QStringLiteral("branch"), QStringLiteral("-m"), branch, name},
+               QStringLiteral("git branch -m %1 %2").arg(branch, name));
+}
+
+void RepositoryView::deleteBranch(const QString &branch, const QString &target)
+{
+    // "git branch -d" se niega si la rama tiene commits que no están en HEAD; entonces se avisa y se usa -D
+    const bool merged = m_repo.isAncestor(target, m_repo.headCommitId());
+    QMessageBox::StandardButton answer;
+    if (merged)
+        answer = QMessageBox::question(this, tr("Eliminar rama"), tr("¿Eliminar la rama local «%1»?").arg(branch));
+    else
+        answer = QMessageBox::warning(
+            this, tr("Eliminar rama"),
+            tr("La rama «%1» tiene commits que no están en la rama actual. Si la eliminas, esos commits "
+               "dejarán de verse en el historial.\n\n¿Eliminarla de todos modos?").arg(branch),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+    if (answer != QMessageBox::Yes)
+        return;
+    const QString flag = merged ? QStringLiteral("-d") : QStringLiteral("-D");
+    runGit({QStringLiteral("branch"), flag, branch}, QStringLiteral("git branch %1 %2").arg(flag, branch));
 }
 
 void RepositoryView::checkout(const QString &branch)

@@ -443,6 +443,17 @@ EN = {
     'Mover %1 arriba': 'Move %1 up',
     'Mover %1 abajo': 'Move %1 down',
     'Eliminar %1': 'Drop %1',
+    # Menú contextual de ramas
+    'Renombrar «%1»…': 'Rename "%1"…',
+    'Eliminar «%1»…': 'Delete "%1"…',
+    'No se puede eliminar la rama actual: cambia antes a otra.':
+        'The current branch cannot be deleted: switch to another one first.',
+    'Renombrar rama': 'Rename Branch',
+    'Nuevo nombre para «%1»:': 'New name for "%1":',
+    'Eliminar rama': 'Delete Branch',
+    '¿Eliminar la rama local «%1»?': 'Delete local branch "%1"?',
+    'La rama «%1» tiene commits que no están en la rama actual. Si la eliminas, esos commits dejarán de verse en el historial.\n\n¿Eliminarla de todos modos?':
+        'Branch "%1" has commits that are not on the current branch. If you delete it, those commits will no longer appear in the history.\n\nDelete it anyway?',
 }
 
 # Tabla de atajos (HTML): se traduce por frases

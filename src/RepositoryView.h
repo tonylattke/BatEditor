@@ -114,6 +114,8 @@ private:
     void onLocationDoubleClicked(QTreeWidgetItem *item);
     void showLocationMenu(const QPoint &pos);
     void checkout(const QString &branch);
+    void renameBranch(const QString &branch);
+    void deleteBranch(const QString &branch, const QString &target);
     void scrollToFile(const QString &key);
     // header: parte fija sobre el detalle (no se desplaza con el scroll), p. ej. el commit
     void setDetailWidget(QWidget *content, QWidget *header = nullptr);
