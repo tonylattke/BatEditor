@@ -107,6 +107,10 @@ public:
     QList<BlameLine> blame(const QString &path) const;   // usa el contenido actual del archivo
     QString upstreamName() const;                        // "origin/master" o vacío
     bool aheadBehind(int *ahead, int *behind) const;     // respecto a la rama remota
+    QString upstreamCommitId() const;                    // commit de la rama remota o vacío
+    bool isAncestor(const QString &ancestor, const QString &descendant) const;  // true también si son iguales
+    // Commits desde HEAD hasta commitId (incluidos) por primeros padres; vacía si no llega o cruza un merge
+    QStringList firstParentChain(const QString &commitId) const;
     QStringList remoteNames() const;
     bool isHeadDetached() const;
     bool isIgnored(const QString &absolutePath, bool isDirectory) const;  // según .gitignore

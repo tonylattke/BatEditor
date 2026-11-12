@@ -1046,6 +1046,47 @@ bool GitRepository::aheadBehind(int *ahead, int *behind) const
     return true;
 }
 
+QString GitRepository::upstreamCommitId() const
+{
+    const QString upstream = upstreamName();
+    return upstream.isEmpty() ? QString() : resolveCommit(QStringLiteral("refs/remotes/") + upstream);
+}
+
+bool GitRepository::isAncestor(const QString &ancestor, const QString &descendant) const
+{
+    if (!m_repo || ancestor.isEmpty() || descendant.isEmpty())
+        return false;
+    if (ancestor == descendant)
+        return true;
+    git_oid a, d;
+    if (git_oid_fromstr(&a, ancestor.toLatin1().constData()) != 0
+        || git_oid_fromstr(&d, descendant.toLatin1().constData()) != 0)
+        return false;
+    return git_graph_descendant_of(m_repo, &d, &a) == 1;
+}
+
+QStringList GitRepository::firstParentChain(const QString &commitId) const
+{
+    QStringList chain;
+    QString current = headCommitId();
+    while (!current.isEmpty()) {
+        git_oid oid;
+        if (git_oid_fromstr(&oid, current.toLatin1().constData()) != 0)
+            return {};
+        git_commit *raw = nullptr;
+        if (git_commit_lookup(&raw, m_repo, &oid) != 0)
+            return {};
+        CommitPtr commit(raw);
+        if (git_commit_parentcount(raw) > 1)
+            return {};
+        chain << current;
+        if (current == commitId)
+            return chain;
+        current = git_commit_parentcount(raw) == 1 ? oidToString(git_commit_parent_id(raw, 0)) : QString();
+    }
+    return {};
+}
+
 QStringList GitRepository::remoteNames() const
 {
     QStringList names;

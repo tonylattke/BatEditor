@@ -1,5 +1,6 @@
 #include "I18n.h"
 #include "MainWindow.h"
+#include "RebaseHelper.h"
 #include "Theme.h"
 
 #include <QApplication>
@@ -8,6 +9,11 @@
 
 int main(int argc, char *argv[])
 {
+    // git invoca a BatCode como editor durante los rebases del menú de commits
+    const int helperResult = RebaseHelper::run(argc, argv);
+    if (helperResult >= 0)
+        return helperResult;
+
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("BatCode"));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/logo.png")));

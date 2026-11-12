@@ -78,6 +78,7 @@ set(BATCODE_SOURCES
     src/FindBar.h              src/FindBar.cpp
     src/QuickOpenDialog.h      src/QuickOpenDialog.cpp
     src/GitRepository.h        src/GitRepository.cpp
+    src/RebaseHelper.h         src/RebaseHelper.cpp
     src/FileDiffWidget.h       src/FileDiffWidget.cpp
     src/RepositoryView.h       src/RepositoryView.cpp
     src/RepositoryHome.h       src/RepositoryHome.cpp

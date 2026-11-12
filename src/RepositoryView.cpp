@@ -2,6 +2,7 @@
 
 #include "FileDiffWidget.h"
 #include "GitCommandPalette.h"
+#include "RebaseHelper.h"
 #include "Theme.h"
 
 #include <QApplication>
@@ -12,6 +13,7 @@
 #include <QHeaderView>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QFileDialog>
 #include <QMenu>
@@ -367,6 +369,8 @@ void RepositoryView::buildUi()
     m_commits->setMouseTracking(true);
     m_commits->setUniformItemSizes(true);
     m_commits->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_commits->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_commits, &QListWidget::customContextMenuRequested, this, &RepositoryView::showCommitMenu);
     connect(m_commits, &QListWidget::currentItemChanged, this, [this](QListWidgetItem *item) {
         if (!item)
             return;
@@ -1593,7 +1597,7 @@ void RepositoryView::updateRemoteButtons()
         b->setMinimumWidth(b->sizeHint().width());
 }
 
-void RepositoryView::runGit(const QStringList &args, const QString &title)
+void RepositoryView::runGit(const QStringList &args, const QString &title, const QHash<QString, QString> &extraEnv)
 {
     if (m_process) {
         QMessageBox::information(this, tr("Git"), tr("Espera a que termine «%1».").arg(m_runningTitle));
@@ -1621,6 +1625,8 @@ void RepositoryView::runGit(const QStringList &args, const QString &title)
     env.insert(QStringLiteral("GIT_TERMINAL_PROMPT"), QStringLiteral("0")); // nunca esperar una contraseña en consola
     env.insert(QStringLiteral("GIT_MERGE_AUTOEDIT"), QStringLiteral("no"));  // merge sin abrir un editor
     env.insert(QStringLiteral("GIT_EDITOR"), QStringLiteral(":"));            // rebase --continue, etc. sin editor
+    for (auto it = extraEnv.cbegin(); it != extraEnv.cend(); ++it)
+        env.insert(it.key(), it.value());
     m_process->setProcessEnvironment(env);
 #ifdef Q_OS_WIN
     // Sin ventana de consola
@@ -2039,19 +2045,24 @@ void RepositoryView::showSectionMenu(const QString &id, const QPoint &globalPos)
 // (git diff [--cached] --binary), listo para "git apply".
 void RepositoryView::savePatch(bool staged)
 {
-    const QString suggested = QDir(m_repo.workdir()).absoluteFilePath(
-        QFileInfo(QDir::cleanPath(m_repo.workdir())).fileName() + (staged ? QStringLiteral("-staged.patch")
-                                                                          : QStringLiteral(".patch")));
+    QStringList args{QStringLiteral("diff"), QStringLiteral("--binary")};
+    if (staged)
+        args << QStringLiteral("--cached");
+    savePatchFromGit(args, QFileInfo(QDir::cleanPath(m_repo.workdir())).fileName()
+                               + (staged ? QStringLiteral("-staged.patch") : QStringLiteral(".patch")));
+}
+
+void RepositoryView::savePatchFromGit(const QStringList &args, const QString &suggestedName)
+{
+    const QString suggested = QDir(m_repo.workdir()).absoluteFilePath(suggestedName);
     const QString path = QFileDialog::getSaveFileName(this, tr("Guardar parche"), suggested,
                                                       tr("Parches (*.patch *.diff);;Todos los archivos (*)"));
     if (path.isEmpty())
         return;
     QProcess git;
     git.setWorkingDirectory(m_repo.workdir());
-    QStringList args{QStringLiteral("diff"), QStringLiteral("--binary")};
-    if (staged)
-        args << QStringLiteral("--cached");
-    git.start(QStringLiteral("git"), args);
+    const QString program = gitExecutable();
+    git.start(program.isEmpty() ? QStringLiteral("git") : program, args);
     const bool ran = git.waitForFinished(60000) && git.exitStatus() == QProcess::NormalExit && git.exitCode() == 0;
     QFile out(path);
     if (!ran || !out.open(QIODevice::WriteOnly)) {
@@ -2062,4 +2073,253 @@ void RepositoryView::savePatch(bool staged)
     }
     out.write(git.readAllStandardOutput());
     Q_EMIT statusMessage(tr("Parche guardado en %1").arg(QDir::toNativeSeparators(path)));
+}
+
+// ---------------------------------------------------------------------------
+// Menú contextual de la lista de commits
+// ---------------------------------------------------------------------------
+void RepositoryView::showCommitMenu(const QPoint &pos)
+{
+    QListWidgetItem *item = m_commits->itemAt(pos);
+    if (!item || item->data(KindRole).toInt() != 1)
+        return;
+    m_commits->setCurrentItem(item);
+    const QString sha = item->data(IdRole).toString();
+    const QString shortSha = sha.left(7);
+    const GitRepository::CommitDetails d = m_repo.commitDetails(sha);
+    const bool isMerge = d.parents.size() > 1;
+    const bool detached = m_repo.isHeadDetached();
+    const QString head = m_repo.headCommitId();
+    const QString branch = m_repo.branchName();
+    const bool inHead = m_repo.isAncestor(sha, head);
+    const bool busy = isBusy();
+
+    QMenu menu(this);
+    auto add = [](QMenu *m, const QString &text, bool enabled, auto &&slot) {
+        QAction *a = m->addAction(text);
+        a->setEnabled(enabled);
+        QObject::connect(a, &QAction::triggered, m, slot);
+        return a;
+    };
+    auto withMainline = [isMerge](QStringList args, const QString &sha) {
+        if (isMerge)
+            args << QStringLiteral("-m") << QStringLiteral("1");
+        return args << sha;
+    };
+
+    add(&menu, tr("Checkout del commit (HEAD desacoplado)…"), !busy && !(detached && sha == head),
+        [this, sha] { checkoutCommit(sha); });
+    add(&menu, tr("Revert %1").arg(shortSha), !busy, [this, sha, withMainline] {
+        const QStringList args = withMainline({QStringLiteral("revert"), QStringLiteral("--no-edit")}, sha);
+        runGit(args, QStringLiteral("git ") + args.join(QLatin1Char(' ')));
+    });
+    add(&menu, tr("Cherry-pick %1").arg(shortSha), !busy && !inHead, [this, sha, withMainline] {
+        const QStringList args = withMainline({QStringLiteral("cherry-pick")}, sha);
+        runGit(args, QStringLiteral("git ") + args.join(QLatin1Char(' ')));
+    });
+    add(&menu, tr("Copiar SHA"), true, [sha] { QApplication::clipboard()->setText(sha); });
+    add(&menu, tr("Copiar mensaje"), true, [d] {
+        QApplication::clipboard()->setText(d.body.isEmpty() ? d.summary : d.summary + QStringLiteral("\n\n") + d.body);
+    });
+    menu.addSeparator();
+
+    QMenu *create = menu.addMenu(tr("Crear"));
+    add(create, tr("Rama en este commit…"), !busy, [this, sha] { createBranchAt(sha); });
+    add(create, tr("Etiqueta en este commit…"), !busy, [this, sha] { createTagAt(sha); });
+    add(create, tr("Guardar parche…"), true, [this, sha] {
+        savePatchFromGit({QStringLiteral("format-patch"), QStringLiteral("-1"), QStringLiteral("--binary"),
+                          QStringLiteral("--stdout"), sha},
+                         sha.left(10) + QStringLiteral(".patch"));
+    });
+
+    // Reescribir historial: solo commits de la rama actual sin merges hasta HEAD
+    const QStringList chain = detached ? QStringList() : m_repo.firstParentChain(sha);
+    const bool linear = !busy && !chain.isEmpty();
+    const bool isRoot = d.parents.isEmpty();
+    QMenu *edit = menu.addMenu(tr("Editar"));
+    add(edit, tr("Editar mensaje del commit…"), linear, [this, sha] { editCommitMessage(sha); });
+    add(edit, tr("Squash con el padre"), linear && !isRoot,
+        [this, sha] { rewriteHistory(QStringLiteral("squash"), sha); });
+    add(edit, tr("Mover arriba (más reciente)"), linear && sha != head,
+        [this, sha] { rewriteHistory(QStringLiteral("up"), sha); });
+    add(edit, tr("Mover abajo (más antiguo)"), linear && !isRoot,
+        [this, sha] { rewriteHistory(QStringLiteral("down"), sha); });
+    add(edit, tr("Eliminar commit…"), linear, [this, sha] { rewriteHistory(QStringLiteral("drop"), sha); });
+    if (chain.isEmpty()) {
+        edit->setToolTipsVisible(true);
+        for (QAction *a : edit->actions())
+            a->setToolTip(detached ? tr("No hay ninguna rama activa (HEAD desacoplado).")
+                                   : tr("Solo commits de la rama actual, sin merges entre el commit y HEAD."));
+    }
+
+    QMenu *reset = menu.addMenu(detached ? tr("Reset de HEAD a este commit")
+                                         : tr("Reset de «%1» a este commit").arg(branch));
+    add(reset, tr("Soft (conserva los cambios preparados)"), !busy,
+        [this, sha] { resetTo(sha, QStringLiteral("--soft")); });
+    add(reset, tr("Mixed (conserva los cambios sin preparar)"), !busy,
+        [this, sha] { resetTo(sha, QStringLiteral("--mixed")); });
+    add(reset, tr("Hard (descarta los cambios)…"), !busy, [this, sha] { resetTo(sha, QStringLiteral("--hard")); });
+
+    menu.exec(m_commits->viewport()->mapToGlobal(pos));
+}
+
+void RepositoryView::checkoutCommit(const QString &sha)
+{
+    const auto answer = QMessageBox::question(
+        this, tr("Checkout del commit"),
+        tr("¿Cambiar al commit %1?\n\nHEAD quedará desacoplado: los commits nuevos no pertenecerán a ninguna rama "
+           "hasta que crees una.").arg(sha.left(7)));
+    if (answer == QMessageBox::Yes)
+        runGit({QStringLiteral("checkout"), QStringLiteral("--detach"), sha},
+               QStringLiteral("git checkout --detach ") + sha.left(7));
+}
+
+void RepositoryView::createBranchAt(const QString &sha)
+{
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, tr("Crear rama"),
+                                               tr("Nombre de la nueva rama (se crea en el commit %1):").arg(sha.left(7)),
+                                               QLineEdit::Normal, QString(), &ok).trimmed();
+    if (ok && !name.isEmpty())
+        runGit({QStringLiteral("branch"), name, sha}, QStringLiteral("git branch %1 %2").arg(name, sha.left(7)));
+}
+
+void RepositoryView::createTagAt(const QString &sha)
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Crear etiqueta"));
+    auto *name = new QLineEdit(&dialog);
+    auto *message = new QPlainTextEdit(&dialog);
+    message->setPlaceholderText(tr("Opcional: con mensaje se crea una etiqueta anotada"));
+    message->setTabChangesFocus(true);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->addWidget(new QLabel(tr("Nombre de la etiqueta (en el commit %1):").arg(sha.left(7)), &dialog));
+    layout->addWidget(name);
+    layout->addWidget(new QLabel(tr("Mensaje"), &dialog));
+    layout->addWidget(message, 1);
+    layout->addWidget(buttons);
+    dialog.resize(460, 260);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    const QString tag = name->text().trimmed();
+    const QString text = message->toPlainText().trimmed();
+    if (tag.isEmpty())
+        return;
+    QStringList args{QStringLiteral("tag")};
+    if (!text.isEmpty())
+        args << QStringLiteral("-a") << QStringLiteral("-m") << text;
+    args << tag << sha;
+    runGit(args, QStringLiteral("git tag %1 %2").arg(tag, sha.left(7)));
+}
+
+void RepositoryView::resetTo(const QString &sha, const QString &mode)
+{
+    if (mode == QLatin1String("--hard")) {
+        const auto answer = QMessageBox::warning(
+            this, tr("Reset hard"),
+            tr("«git reset --hard %1» descarta todos los cambios sin confirmar y los commits posteriores "
+               "de la rama actual.\n\n¿Continuar?").arg(sha.left(7)),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (answer != QMessageBox::Yes)
+            return;
+    }
+    runGit({QStringLiteral("reset"), mode, sha}, QStringLiteral("git reset %1 %2").arg(mode, sha.left(7)));
+}
+
+void RepositoryView::editCommitMessage(const QString &sha)
+{
+    const GitRepository::CommitDetails d = m_repo.commitDetails(sha);
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Editar mensaje del commit %1").arg(sha.left(7)));
+    auto *text = new QPlainTextEdit(&dialog);
+    text->setFont(Theme::editorFont());
+    const QString original = d.body.isEmpty() ? d.summary : d.summary + QStringLiteral("\n\n") + d.body;
+    text->setPlainText(original);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->addWidget(text, 1);
+    layout->addWidget(buttons);
+    dialog.resize(620, 300);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    const QString message = text->toPlainText().trimmed();
+    if (message.isEmpty() || message == original.trimmed())
+        return;
+    rewriteHistory(QStringLiteral("reword"), sha, message);
+}
+
+// Reescribe el historial con "git rebase -i" sin intervención: BatCode hace de editor
+// de la lista de tareas (y del mensaje, en reword) a través de RebaseHelper.
+void RepositoryView::rewriteHistory(const QString &op, const QString &sha, const QString &message)
+{
+    if (isBusy()) {
+        QMessageBox::information(this, tr("Git"), tr("Espera a que termine «%1».").arg(m_runningTitle));
+        return;
+    }
+    const QString upstream = m_repo.upstreamCommitId();
+    if (!upstream.isEmpty() && m_repo.isAncestor(sha, upstream)) {
+        const auto answer = QMessageBox::warning(
+            this, tr("Reescribir historial"),
+            tr("El commit %1 ya está en «%2».\n\nDespués tendrás que hacer un push forzado y quien ya lo haya "
+               "descargado tendrá que reajustar su rama. ¿Continuar?").arg(sha.left(7), m_repo.upstreamName()),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (answer != QMessageBox::Yes)
+            return;
+    } else if (op == QLatin1String("drop")) {
+        const auto answer = QMessageBox::question(this, tr("Eliminar commit"),
+                                                  tr("¿Eliminar el commit %1 de la rama «%2»?")
+                                                      .arg(sha.left(7), m_repo.branchName()));
+        if (answer != QMessageBox::Yes)
+            return;
+    }
+
+    // Base del rebase: el padre (o el abuelo si la operación involucra al padre)
+    const bool needsParent = op == QLatin1String("squash") || op == QLatin1String("down");
+    QString base = m_repo.commitDetails(sha).parents.value(0);
+    if (needsParent && !base.isEmpty())
+        base = m_repo.commitDetails(base).parents.value(0);
+
+    QHash<QString, QString> env;
+    env.insert(QStringLiteral("GIT_SEQUENCE_EDITOR"),
+               RebaseHelper::editorCommand({QStringLiteral("--rebase-todo"), op, sha}));
+    QString messageFile;
+    if (op == QLatin1String("reword")) {
+        messageFile = QDir(QDir::tempPath()).absoluteFilePath(
+            QStringLiteral("batcode-reword-%1-%2.txt").arg(QCoreApplication::applicationPid()).arg(m_runCounter + 1));
+        QFile f(messageFile);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            QMessageBox::warning(this, tr("Git"), tr("No se pudo crear un archivo temporal.\n\n%1").arg(f.errorString()));
+            return;
+        }
+        f.write(message.toUtf8() + '\n');
+        f.close();
+        env.insert(QStringLiteral("GIT_EDITOR"),
+                   RebaseHelper::editorCommand({QStringLiteral("--rebase-message"), messageFile}));
+        connect(this, &RepositoryView::commandFinished, this, [messageFile] { QFile::remove(messageFile); },
+                Qt::SingleShotConnection);
+    }
+
+    QStringList args{QStringLiteral("rebase"), QStringLiteral("-i"), QStringLiteral("--autostash")};
+    if (base.isEmpty())
+        args << QStringLiteral("--root");
+    else
+        args << base;
+
+    QString title;
+    if (op == QLatin1String("reword"))
+        title = tr("Editar mensaje de %1");
+    else if (op == QLatin1String("squash"))
+        title = tr("Squash de %1 con su padre");
+    else if (op == QLatin1String("up"))
+        title = tr("Mover %1 arriba");
+    else if (op == QLatin1String("down"))
+        title = tr("Mover %1 abajo");
+    else
+        title = tr("Eliminar %1");
+    runGit(args, title.arg(sha.left(7)), env);
 }

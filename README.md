@@ -137,6 +137,29 @@ archivo en el detalle, ofrece:
 | Abrir carpeta contenedora… | Abre el Explorador con el archivo seleccionado |
 | Copiar ruta del archivo / Copiar ruta relativa | Copia las rutas al portapapeles |
 
+**Menú contextual de commits.** El clic derecho sobre un commit de la pestaña *Commits* lo
+selecciona y ofrece:
+
+| Opción | Qué hace |
+|---|---|
+| Checkout del commit… | `git checkout --detach`: HEAD queda desacoplado (pide confirmación) |
+| Revert / Cherry-pick | `git revert --no-edit` / `git cherry-pick` (con `-m 1` en los merges). Cherry-pick se desactiva si el commit ya está en la rama actual |
+| Copiar SHA / Copiar mensaje | Al portapapeles |
+| Crear › Rama en este commit… | `git branch <nombre> <commit>` (sin cambiar de rama) |
+| Crear › Etiqueta en este commit… | `git tag`; si escribes un mensaje, la etiqueta es anotada |
+| Crear › Guardar parche… | `git format-patch -1 --stdout` en un `.patch` para `git am` |
+| Editar › Editar mensaje del commit… | Cambia el mensaje de cualquier commit de la rama actual |
+| Editar › Squash con el padre | Une el commit con su padre, conservando ambos mensajes |
+| Editar › Mover arriba / Mover abajo | Intercambia el commit con el siguiente o con el anterior |
+| Editar › Eliminar commit… | Quita el commit de la rama (pide confirmación) |
+| Reset de «rama» a este commit › | `--soft` (conserva los cambios preparados), `--mixed` (sin preparar) o `--hard` (los descarta; pide confirmación) |
+
+Las opciones de **Editar** reescriben el historial con `git rebase -i --autostash` sin pedirte
+nada: BatCode actúa como editor de la lista de tareas del rebase. Solo están activas para commits
+de la rama actual sin merges entre el commit y HEAD. Si el commit ya está en la rama remota,
+avisa de que después hará falta un push forzado. Si el rebase se detiene por un conflicto,
+resuélvelo y usa `rebase --continue` o `rebase --abort` desde la paleta de comandos.
+
 **Operaciones remotas.** A la derecha de la barra del repositorio están **⇄ Merge**,
 **⟲ Fetch**, **↓ Pull ▾**, **↑ Push ▾** y **⋯**. Pull y Push muestran cuántos commits hay por bajar
 y por subir. Los botones ▾ abren una paleta con las opciones; se navega con ↑/↓, se filtra
@@ -216,7 +239,7 @@ También puedes abrir la carpeta en Visual Studio, Qt Creator o CLion: todos ent
 ## Estructura
 
 ```
-assets/                    Logo (logo.png), icono de Windows (logo.ico) , recursos (batcode.qrc / batcode.rc) y lanzador de Linux (batcode.desktop)
+assets/                    Logo (logo.png), icono de Windows (logo.ico), recursos (batcode.qrc / batcode.rc) y lanzador de Linux (batcode.desktop)
 src/
   main.cpp                 Punto de entrada y argumentos de línea de comandos
   MainWindow.*             Ventana, menús, cambio de modo, explorador de carpetas, pestañas y sesión
@@ -233,6 +256,7 @@ src/
   DiffHighlighter.*        Colores para diffs unificados
   GitRepository.*          Envoltorio RAII sobre libgit2: estado, diffs por archivo, stage,
                            commit, historial, ramas, remotos, tags, stashes, checkout
+  RebaseHelper.*           Modo sin ventana que hace de editor de git en los rebases del menú de commits
   GitWorkspace.*           Modo Git: una pestaña por repositorio
   RepositoryView.*         Las tres secciones de un repositorio (ubicaciones, commits, detalle)
   FileDiffWidget.*         Bloque plegable con el diff de un archivo y sus acciones
@@ -248,7 +272,7 @@ tools/i18n/                Script y textos para regenerar las traducciones
 - Preparar cambios por bloque o por línea (*hunks*) desde la vista de diff.
 - Diff lado a lado, números de línea en el diff y vista de *blame*.
 - Grafo real de ramas en la lista de commits.
-- Borrar y renombrar ramas; rebase interactivo; resolver conflictos dentro de BatCode.
+- Borrar y renombrar ramas; resolver conflictos dentro de BatCode.
 - Búsqueda en el historial.
 - Paleta de comandos para el modo editor.
 - Resaltado con tree-sitter, temas configurables y ajustes en JSON.

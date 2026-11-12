@@ -35,7 +35,9 @@ public:
 
     // --- Operaciones remotas (usan el programa git instalado) ---
     bool isBusy() const { return m_process != nullptr; }
-    void runGit(const QStringList &args, const QString &title = QString());
+    // extraEnv se aplica después de las variables por defecto (GIT_EDITOR, etc.)
+    void runGit(const QStringList &args, const QString &title = QString(),
+                const QHash<QString, QString> &extraEnv = {});
 
 public Q_SLOTS:
     void reload();
@@ -76,6 +78,16 @@ private:
     void setAllSectionsCollapsed(bool collapsed);
     void showSectionMenu(const QString &id, const QPoint &globalPos);
     void savePatch(bool staged);
+    void savePatchFromGit(const QStringList &args, const QString &suggestedName);
+    // Menú contextual de la lista de commits
+    void showCommitMenu(const QPoint &pos);
+    void checkoutCommit(const QString &sha);
+    void createBranchAt(const QString &sha);
+    void createTagAt(const QString &sha);
+    void resetTo(const QString &sha, const QString &mode);
+    void editCommitMessage(const QString &sha);
+    // op: reword, squash, up, down o drop (ver RebaseHelper)
+    void rewriteHistory(const QString &op, const QString &sha, const QString &message = QString());
     void showFileHistory(const QString &path);
     void showBlame(const QString &path);
     void openContainingFolder(const QString &path);
