@@ -52,6 +52,9 @@ private:
     void revealInExplorer(const QString &path);
     void runScript(const QString &path);
     void openTerminal(const QString &directory);
+    void retargetTabs(const QString &oldPath, const QString &newPath);
+    // Arrastrar y soltar en el explorador: pregunta mover / copiar / cancelar
+    void dropIntoFolder(const QStringList &sources, const QString &targetDir);
     EditorTab *newTab();
     bool closeTab(int index);
     bool maybeSave(EditorTab *tab);

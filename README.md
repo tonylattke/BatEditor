@@ -87,6 +87,10 @@ archivos abiertos.
   - Carpeta: abrir una terminal ahí (Windows Terminal si está instalado, si no `cmd`), abrir en el
     explorador, renombrar (`F2`) y copiar la ruta.
   - Al renombrar, las pestañas abiertas de ese archivo (o de los archivos de esa carpeta) se actualizan.
+- **Arrastrar y soltar en el panel de carpetas**: arrastra archivos o carpetas (también varios con
+  `Ctrl`/`Shift`) a otra carpeta del proyecto; si mantienes el ratón sobre una carpeta cerrada,
+  se abre. Al soltar, un menú pregunta **Mover aquí**, **Copiar aquí** o **Cancelar**. Las copias
+  en la misma carpeta se llaman «nombre - copia»; al mover, las pestañas abiertas siguen al archivo.
 - `Ctrl+P`: ir a archivo con búsqueda difusa. `Ctrl+G`: ir a línea.
 - Barra de estado con línea y columna, número de cursores, sangría y lenguaje.
 - Respeta los finales de línea CRLF/LF de cada archivo y guarda de forma atómica.

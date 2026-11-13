@@ -490,6 +490,17 @@ EN = {
     'No se pudo crear la carpeta %1.': 'Could not create the folder %1.',
     'Clonando…': 'Cloning…',
     'No se pudo clonar: %1': 'Could not clone: %1',
+    'copia': 'copy',
+    '%1 elementos': '%1 items',
+    '%1 → %2': '%1 → %2',
+    'Mover aquí': 'Move Here',
+    'Copiar aquí': 'Copy Here',
+    'Cancelar': 'Cancel',
+    'Ya existe en «%1» (no se movió):\n%2': 'Already exists in "%1" (not moved):\n%2',
+    'No se pudo completar (en uso o sin permiso):\n%1': 'Could not complete (in use or no permission):\n%1',
+    'Mover': 'Move',
+    '%1 movido(s) a %2': '%1 moved to %2',
+    '%1 copiado(s) a %2': '%1 copied to %2',
 }
 
 # Tabla de atajos (HTML): se traduce por frases

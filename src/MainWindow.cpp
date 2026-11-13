@@ -23,6 +23,9 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMimeData>
+#include <QTimer>
+#include <QCursor>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -44,6 +47,7 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 
+#include <functional>
 #include <utility>
 
 #ifdef Q_OS_WIN
@@ -115,6 +119,98 @@ private:
 
     QString m_folder;
     QString m_container;
+
+public:
+    // --- Arrastrar y soltar dentro del proyecto ---
+    // El modelo de archivos es de solo lectura: el proxy acepta el "drop" y avisa
+    // a la ventana, que pregunta si mover o copiar. Nunca modifica nada él mismo.
+    std::function<void(const QStringList &sources, const QString &targetDir)> onDrop;
+
+    Qt::ItemFlags flags(const QModelIndex &index) const override
+    {
+        Qt::ItemFlags f = QSortFilterProxyModel::flags(index);
+        if (!index.isValid())
+            return f;
+        auto *fs = static_cast<QFileSystemModel *>(sourceModel());
+        const QModelIndex src = mapToSource(index);
+        if (insideProject(fs->filePath(src)))
+            f |= Qt::ItemIsDragEnabled;
+        if (fs->isDir(src) && insideProject(fs->filePath(src), true))
+            f |= Qt::ItemIsDropEnabled;
+        return f;
+    }
+
+    Qt::DropActions supportedDropActions() const override { return Qt::MoveAction | Qt::CopyAction; }
+    Qt::DropActions supportedDragActions() const override { return Qt::MoveAction | Qt::CopyAction; }
+
+    bool canDropMimeData(const QMimeData *data, Qt::DropAction, int, int, const QModelIndex &parent) const override
+    {
+        const QString target = targetDir(parent);
+        if (!data->hasUrls() || target.isEmpty())
+            return false;
+        for (const QUrl &url : data->urls()) {
+            const QString src = QDir::cleanPath(url.toLocalFile());
+            // Solo elementos del proyecto, y nunca una carpeta dentro de sí misma
+            if (!url.isLocalFile() || !insideProject(src) || samePath(src, m_folder))
+                return false;
+            if (samePath(src, target) || isAncestor(src, target))
+                return false;
+        }
+        return true;
+    }
+
+    bool dropMimeData(const QMimeData *data, Qt::DropAction action, int row, int column,
+                      const QModelIndex &parent) override
+    {
+        if (!canDropMimeData(data, action, row, column, parent) || !onDrop)
+            return false;
+        QStringList sources;
+        for (const QUrl &url : data->urls())
+            sources << QDir::cleanPath(url.toLocalFile());
+        const QString target = targetDir(parent);
+        // El menú se abre cuando termina el arrastre; se devuelve false para que
+        // la vista no intente quitar las filas de origen
+        QTimer::singleShot(0, this, [this, sources, target] { onDrop(sources, target); });
+        return false;
+    }
+
+private:
+    QString targetDir(const QModelIndex &parent) const
+    {
+        auto *fs = static_cast<QFileSystemModel *>(sourceModel());
+        if (!parent.isValid())
+            return m_folder;
+        // Soltar en el hueco bajo la lista (raíz de la vista = carpeta contenedora)
+        // equivale a soltar en la carpeta del proyecto
+        if (!m_container.isEmpty() && samePath(fs->filePath(mapToSource(parent)), m_container))
+            return m_folder;
+        const QModelIndex src = mapToSource(parent);
+        QString dir = fs->filePath(src);
+        if (!fs->isDir(src))
+            dir = QFileInfo(dir).absolutePath();
+        dir = QDir::cleanPath(dir);
+        return insideProject(dir, true) ? dir : QString();
+    }
+
+    bool insideProject(const QString &path, bool allowRoot = false) const
+    {
+        if (m_folder.isEmpty())
+            return false;
+        const QString p = QDir::cleanPath(path);
+        if (samePath(p, m_folder))
+            return allowRoot;
+        return isAncestor(m_folder, p);
+    }
+
+    static bool isAncestor(const QString &ancestor, const QString &path)
+    {
+        const QString prefix = QDir::cleanPath(ancestor) + QLatin1Char('/');
+#ifdef Q_OS_WIN
+        return QDir::cleanPath(path).startsWith(prefix, Qt::CaseInsensitive);
+#else
+        return QDir::cleanPath(path).startsWith(prefix);
+#endif
+    }
 };
 
 MainWindow::MainWindow(QWidget *parent)
@@ -198,6 +294,17 @@ QWidget *MainWindow::createEditorPage()
     m_tree->setAnimated(false);
     m_tree->setIndentation(14);
     m_tree->setUniformRowHeights(true);
+    // Arrastrar y soltar archivos/carpetas dentro del proyecto (pregunta mover/copiar)
+    m_tree->setDragEnabled(true);
+    m_tree->setAcceptDrops(true);
+    m_tree->setDropIndicatorShown(true);
+    m_tree->setDragDropMode(QAbstractItemView::DragDrop);
+    m_tree->setDefaultDropAction(Qt::MoveAction);
+    m_tree->setAutoExpandDelay(600);   // al mantener encima una carpeta, se abre
+    m_tree->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_fsProxy->onDrop = [this](const QStringList &sources, const QString &target) {
+        dropIntoFolder(sources, target);
+    };
     // QFileSystemModel carga en segundo plano: al cargar la carpeta contenedora
     // se expande la carpeta abierta
     connect(m_fsModel, &QFileSystemModel::directoryLoaded, this, [this](const QString &loaded) {
@@ -1279,21 +1386,7 @@ void MainWindow::renamePath(const QString &path)
         return;
     }
 
-    // Las pestañas abiertas siguen al archivo (o a los archivos de la carpeta)
-    const QString oldPrefix = QDir::cleanPath(path) + QLatin1Char('/');
-    for (int i = 0; i < m_tabs->count(); ++i) {
-        EditorTab *t = tabAt(i);
-        if (!t || t->isUntitled())
-            continue;
-        const QString file = QDir::cleanPath(t->filePath());
-        if (file == QDir::cleanPath(path))
-            t->setFilePath(target);
-        else if (info.isDir() && file.startsWith(oldPrefix))
-            t->setFilePath(QDir::cleanPath(target) + QLatin1Char('/') + file.mid(oldPrefix.size()));
-        else
-            continue;
-        m_tabs->setTabToolTip(i, t->filePath());
-    }
+    retargetTabs(path, target);
     if (isRoot)
         openFolder(target);   // se renombró la carpeta abierta
     statusBar()->showMessage(tr("Renombrado a %1").arg(name), 3000);
@@ -1358,4 +1451,145 @@ void MainWindow::openTerminal(const QString &directory)
 #endif
     if (!started)
         QMessageBox::warning(this, tr("Abrir terminal"), tr("No se encontró ninguna terminal para abrir en «%1».").arg(dir));
+}
+
+// Las pestañas abiertas siguen al archivo (o a los archivos de la carpeta) que
+// se renombró o movió
+void MainWindow::retargetTabs(const QString &oldPath, const QString &newPath)
+{
+    const QString oldClean = QDir::cleanPath(oldPath);
+    const QString oldPrefix = oldClean + QLatin1Char('/');
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        EditorTab *t = tabAt(i);
+        if (!t || t->isUntitled())
+            continue;
+        const QString file = QDir::cleanPath(t->filePath());
+        if (file == oldClean)
+            t->setFilePath(QDir::cleanPath(newPath));
+        else if (file.startsWith(oldPrefix))
+            t->setFilePath(QDir::cleanPath(newPath) + QLatin1Char('/') + file.mid(oldPrefix.size()));
+        else
+            continue;
+        m_tabs->setTabToolTip(i, t->filePath());
+    }
+}
+
+namespace {
+// Copia recursiva de una carpeta (los archivos se copian tal cual)
+bool copyRecursively(const QString &source, const QString &target)
+{
+    const QFileInfo info(source);
+    if (!info.isDir())
+        return QFile::copy(source, target);
+    if (!QDir().mkpath(target))
+        return false;
+    const QDir dir(source);
+    for (const QFileInfo &entry : dir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System)) {
+        if (!copyRecursively(entry.absoluteFilePath(), QDir(target).filePath(entry.fileName())))
+            return false;
+    }
+    return true;
+}
+
+// "a.txt" -> "a - copia.txt", "a - copia (2).txt"… si ya existe en la carpeta
+QString uniqueCopyName(const QString &targetDir, const QFileInfo &source)
+{
+    const QDir dir(targetDir);
+    if (!dir.exists(source.fileName()))
+        return source.fileName();
+    const QString base = source.isDir() ? source.fileName() : source.completeBaseName();
+    const QString ext = source.isDir() || source.suffix().isEmpty() ? QString() : QLatin1Char('.') + source.suffix();
+    const QString copyWord = QCoreApplication::translate("MainWindow", "copia");  // tr("copia")
+    for (int n = 1;; ++n) {
+        const QString name = n == 1 ? QStringLiteral("%1 - %2%3").arg(base, copyWord, ext)
+                                    : QStringLiteral("%1 - %2 (%3)%4").arg(base, copyWord).arg(n).arg(ext);
+        if (!dir.exists(name))
+            return name;
+    }
+}
+} // namespace
+
+void MainWindow::dropIntoFolder(const QStringList &sources, const QString &targetDir)
+{
+    if (sources.isEmpty())
+        return;
+    // Si se arrastra una carpeta junto con algo que contiene, basta con la carpeta
+    QStringList items;
+    for (const QString &src : sources) {
+        bool covered = false;
+        for (const QString &other : sources)
+            if (other != src && QDir::cleanPath(src).startsWith(QDir::cleanPath(other) + QLatin1Char('/')))
+                covered = true;
+        if (!covered && !items.contains(src))
+            items << src;
+    }
+    const QString what = items.size() == 1 ? QStringLiteral("«%1»").arg(QFileInfo(items.first()).fileName())
+                                           : tr("%1 elementos").arg(items.size());
+    const QString where = QFileInfo(targetDir).fileName();
+
+    QMenu menu(this);
+    QAction *header = menu.addAction(tr("%1 → %2").arg(what, where));
+    header->setEnabled(false);
+    menu.addSeparator();
+    QAction *move = menu.addAction(tr("Mover aquí"));
+    QAction *copy = menu.addAction(tr("Copiar aquí"));
+    menu.addSeparator();
+    menu.addAction(tr("Cancelar"));
+    // Mover no tiene sentido si todo está ya en esa carpeta
+    bool allHere = true;
+    for (const QString &src : items)
+        if (QDir::cleanPath(QFileInfo(src).absolutePath()) != QDir::cleanPath(targetDir))
+            allHere = false;
+    move->setEnabled(!allHere);
+    menu.setActiveAction(allHere ? copy : move);
+    QAction *chosen = menu.exec(QCursor::pos());
+    if (chosen != move && chosen != copy)
+        return;
+
+    QStringList failed;
+    QStringList skipped;
+    int done = 0;
+    for (const QString &src : items) {
+        const QFileInfo info(src);
+        if (chosen == move) {
+            if (QDir::cleanPath(info.absolutePath()) == QDir::cleanPath(targetDir))
+                continue;
+            const QString dest = QDir(targetDir).filePath(info.fileName());
+            if (QFileInfo::exists(dest)) {
+                skipped << info.fileName();
+                continue;
+            }
+            if (!QDir().rename(src, dest)) {
+                failed << info.fileName();
+                continue;
+            }
+            retargetTabs(src, dest);
+            ++done;
+        } else {
+            const QString dest = QDir(targetDir).filePath(uniqueCopyName(targetDir, info));
+            if (!copyRecursively(src, dest)) {
+                failed << info.fileName();
+                continue;
+            }
+            ++done;
+        }
+    }
+
+    if (!skipped.isEmpty() || !failed.isEmpty()) {
+        QString text;
+        if (!skipped.isEmpty())
+            text += tr("Ya existe en «%1» (no se movió):\n%2").arg(where, skipped.join(QLatin1Char('\n')));
+        if (!failed.isEmpty()) {
+            if (!text.isEmpty())
+                text += QStringLiteral("\n\n");
+            text += tr("No se pudo completar (en uso o sin permiso):\n%1").arg(failed.join(QLatin1Char('\n')));
+        }
+        QMessageBox::warning(this, chosen == move ? tr("Mover") : tr("Copiar"), text);
+    }
+    if (done > 0) {
+        statusBar()->showMessage(chosen == move ? tr("%1 movido(s) a %2").arg(done).arg(where)
+                                                : tr("%1 copiado(s) a %2").arg(done).arg(where),
+                                 3000);
+        m_git->refreshRepositoryContaining(targetDir);
+    }
 }
