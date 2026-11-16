@@ -443,6 +443,34 @@ EN = {
     'Mover %1 arriba': 'Move %1 up',
     'Mover %1 abajo': 'Move %1 down',
     'Eliminar %1': 'Drop %1',
+    # Explorador: nuevo archivo
+    'Nuevo archivo…': 'New File…',
+    'Nuevo archivo en esta carpeta…': 'New File in This Folder…',
+    'Nombre del archivo en «%1»:': 'File name in "%1":',
+    'Escribe un nombre de archivo dentro de la carpeta (puede incluir subcarpetas).':
+        'Enter a file name inside the folder (it may include subfolders).',
+    'No se pudo crear «%1».\n\n%2': 'Could not create "%1".\n\n%2',
+    'Creado %1': 'Created %1',
+    # Explorador: eliminar
+    'Eliminar %1 elementos…': 'Delete %1 Items…',
+    'Eliminar…': 'Delete…',
+    '¿Mover a la papelera la carpeta «%1» y todo su contenido?': 'Move folder "%1" and all its contents to the trash?',
+    '¿Mover a la papelera «%1»?': 'Move "%1" to the trash?',
+    '¿Mover a la papelera estos %1 elementos (las carpetas con todo su contenido)?':
+        'Move these %1 items to the trash (folders with all their contents)?',
+    'Se perderán los cambios sin guardar de %1 pestaña(s).': 'Unsaved changes in %1 tab(s) will be lost.',
+    'Eliminar': 'Delete',
+    'No se pudo mover a la papelera:\n\n%1\n\n¿Eliminarlo definitivamente? No se podrá recuperar.':
+        'Could not move to the trash:\n\n%1\n\nDelete permanently? It cannot be recovered.',
+    'No se pudo eliminar:\n\n%1\n\nPuede que esté en uso o que no tengas permiso.':
+        'Could not delete:\n\n%1\n\nIt may be in use or you may not have permission.',
+    'Eliminado %1': 'Deleted %1',
+    'Eliminados %1 elementos': 'Deleted %1 items',
+    # Submódulos al cambiar de rama
+    'Submódulos en «%1»: %2 de %3': 'Submodules on "%1": %2 of %3',
+    'Algunos submódulos no pudieron cambiar a «%1» y se quedaron como estaban:\n\n%2':
+        'Some submodules could not switch to "%1" and were left as they were:\n\n%2',
+    'Submódulo %1: git %2': 'Submodule %1: git %2',
     # Ramas remotas
     'Doble clic para trabajar en esta rama localmente': 'Double-click to work on this branch locally',
     '¿Crear la rama local «%1» desde «%2» y cambiar a ella?': 'Create local branch "%1" from "%2" and switch to it?',

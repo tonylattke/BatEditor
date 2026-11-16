@@ -20,6 +20,7 @@
 #include <QFileSystemModel>
 #include <QGuiApplication>
 #include <QHeaderView>
+#include <QFile>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
@@ -328,6 +329,8 @@ QWidget *MainWindow::createEditorPage()
         if (idx.isValid())
             renamePath(m_fsModel->filePath(idx));
     });
+    auto *deleteShortcut = new QShortcut(QKeySequence::Delete, m_tree, nullptr, nullptr, Qt::WidgetShortcut);
+    connect(deleteShortcut, &QShortcut::activated, this, [this] { deletePaths(selectedTreePaths(m_tree->currentIndex())); });
 
     auto *header = new QLabel(tr("CARPETAS"), this);
     header->setObjectName(QStringLiteral("sidebarHeader"));
@@ -1325,14 +1328,23 @@ QString linuxTerminal()
 void MainWindow::showFolderTreeMenu(const QPoint &pos)
 {
     const QModelIndex proxyIndex = m_tree->indexAt(pos);
-    if (!proxyIndex.isValid())
+    if (!proxyIndex.isValid()) {
+        // Zona vacía del panel: crear en la carpeta abierta
+        if (m_rootPath.isEmpty())
+            return;
+        QMenu menu(this);
+        menu.addAction(tr("Nuevo archivo…"), this, [this] { createFileIn(m_rootPath); });
+        menu.exec(m_tree->viewport()->mapToGlobal(pos));
         return;
+    }
     m_tree->setCurrentIndex(proxyIndex);
     const QString path = m_fsModel->filePath(m_fsProxy->mapToSource(proxyIndex));
     const QFileInfo info(path);
 
     QMenu menu(this);
     if (info.isDir()) {
+        menu.addAction(tr("Nuevo archivo…"), this, [this, path] { createFileIn(path); });
+        menu.addSeparator();
         menu.addAction(tr("Abrir terminal aquí"), this, [this, path] { openTerminal(path); });
         menu.addAction(tr("Abrir en el explorador"), this, [this, path] { revealInExplorer(path); });
         menu.addSeparator();
@@ -1345,15 +1357,174 @@ void MainWindow::showFolderTreeMenu(const QPoint &pos)
         menu.addAction(tr("Abrir la carpeta en el explorador"), this, [this, path] { revealInExplorer(path); });
         menu.addAction(tr("Abrir terminal en la carpeta"), this,
                        [this, info] { openTerminal(info.absolutePath()); });
+        menu.addAction(tr("Nuevo archivo en esta carpeta…"), this,
+                       [this, info] { createFileIn(info.absolutePath()); });
         menu.addSeparator();
         QAction *rename = menu.addAction(tr("Renombrar…"), this, [this, path] { renamePath(path); });
         rename->setShortcut(QKeySequence(Qt::Key_F2));
     }
+    const QStringList toDelete = selectedTreePaths(proxyIndex);
+    QAction *remove = menu.addAction(toDelete.size() > 1 ? tr("Eliminar %1 elementos…").arg(toDelete.size())
+                                                         : tr("Eliminar…"),
+                                     this, [this, toDelete] { deletePaths(toDelete); });
+    remove->setShortcut(QKeySequence::Delete);
+    remove->setEnabled(!toDelete.isEmpty());
     menu.addSeparator();
     menu.addAction(tr("Copiar ruta"), this, [path] {
         QGuiApplication::clipboard()->setText(QDir::toNativeSeparators(path));
     });
     menu.exec(m_tree->viewport()->mapToGlobal(pos));
+}
+
+// Los elementos seleccionados si `clicked` forma parte de la selección; si no, solo `clicked`.
+// Se quitan la carpeta abierta y los elementos que ya están dentro de otro seleccionado.
+QStringList MainWindow::selectedTreePaths(const QModelIndex &clicked) const
+{
+    if (!clicked.isValid())
+        return {};
+    QStringList paths;
+    const QModelIndexList rows = m_tree->selectionModel()->selectedRows();
+    if (rows.contains(clicked.siblingAtColumn(0))) {
+        for (const QModelIndex &idx : rows)
+            paths << QDir::cleanPath(m_fsModel->filePath(m_fsProxy->mapToSource(idx)));
+    } else {
+        paths << QDir::cleanPath(m_fsModel->filePath(m_fsProxy->mapToSource(clicked)));
+    }
+    paths.removeAll(QDir::cleanPath(m_rootPath));
+    QStringList result;
+    for (const QString &p : paths) {
+        bool nested = false;
+        for (const QString &other : paths)
+            if (other != p && p.startsWith(other + QLatin1Char('/')))
+                nested = true;
+        if (!nested && !result.contains(p))
+            result << p;
+    }
+    return result;
+}
+
+void MainWindow::deletePaths(const QStringList &paths)
+{
+    if (paths.isEmpty())
+        return;
+
+    // Pestañas de archivos que se van a borrar (también los que están dentro de una carpeta)
+    auto affected = [this](const QString &path) {
+        QList<EditorTab *> tabs;
+        for (int i = 0; i < m_tabs->count(); ++i) {
+            EditorTab *t = tabAt(i);
+            if (!t || t->isUntitled())
+                continue;
+            const QString file = QDir::cleanPath(t->filePath());
+            if (file == path || file.startsWith(path + QLatin1Char('/')))
+                tabs << t;
+        }
+        return tabs;
+    };
+    int modified = 0;
+    for (const QString &p : paths)
+        for (EditorTab *t : affected(p))
+            if (t->isModified())
+                ++modified;
+
+    QString question;
+    if (paths.size() == 1) {
+        const QFileInfo info(paths.first());
+        question = info.isDir() ? tr("¿Mover a la papelera la carpeta «%1» y todo su contenido?").arg(info.fileName())
+                                : tr("¿Mover a la papelera «%1»?").arg(info.fileName());
+    } else {
+        question = tr("¿Mover a la papelera estos %1 elementos (las carpetas con todo su contenido)?").arg(paths.size());
+    }
+    if (modified > 0)
+        question += QStringLiteral("\n\n") + tr("Se perderán los cambios sin guardar de %1 pestaña(s).").arg(modified);
+    if (QMessageBox::question(this, tr("Eliminar"), question) != QMessageBox::Yes)
+        return;
+
+    auto closeTabsFor = [&](const QString &path) {
+        for (EditorTab *t : affected(path)) {
+            m_tabs->removeTab(m_tabs->indexOf(t));
+            t->deleteLater();
+        }
+    };
+
+    QStringList noTrash;
+    QStringList failed;
+    for (const QString &p : paths) {
+        if (QFile::moveToTrash(p))
+            closeTabsFor(p);
+        else
+            noTrash << p;
+    }
+    // Sin papelera disponible (p. ej. una unidad de red): borrar definitivamente, con otra confirmación
+    if (!noTrash.isEmpty()) {
+        QStringList names;
+        for (const QString &p : noTrash)
+            names << QDir::toNativeSeparators(p);
+        const auto answer = QMessageBox::warning(
+            this, tr("Eliminar"),
+            tr("No se pudo mover a la papelera:\n\n%1\n\n¿Eliminarlo definitivamente? No se podrá recuperar.")
+                .arg(names.join(QLatin1Char('\n'))),
+            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (answer == QMessageBox::Yes) {
+            for (const QString &p : noTrash) {
+                const bool ok = QFileInfo(p).isDir() ? QDir(p).removeRecursively() : QFile::remove(p);
+                if (ok)
+                    closeTabsFor(p);
+                else
+                    failed << QDir::toNativeSeparators(p);
+            }
+        }
+    }
+    if (!failed.isEmpty())
+        QMessageBox::warning(this, tr("Eliminar"),
+                             tr("No se pudo eliminar:\n\n%1\n\nPuede que esté en uso o que no tengas permiso.")
+                                 .arg(failed.join(QLatin1Char('\n'))));
+
+    updateWindowTitle();
+    updateStatus();
+    statusBar()->showMessage(paths.size() == 1 ? tr("Eliminado %1").arg(QFileInfo(paths.first()).fileName())
+                                               : tr("Eliminados %1 elementos").arg(paths.size()),
+                             3000);
+    for (const QString &p : paths)
+        m_git->refreshRepositoryContaining(p);
+}
+
+// El nombre puede incluir subcarpetas ("src/util.cpp"): se crean si no existen.
+void MainWindow::createFileIn(const QString &dir)
+{
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, tr("Nuevo archivo"),
+                                               tr("Nombre del archivo en «%1»:").arg(QDir(dir).dirName()),
+                                               QLineEdit::Normal, QString(), &ok)
+                             .trimmed();
+    if (!ok || name.isEmpty())
+        return;
+    const QString relative = QDir::fromNativeSeparators(name);
+    if (QDir::isAbsolutePath(relative) || relative.split(QLatin1Char('/')).contains(QLatin1String(".."))
+        || relative.endsWith(QLatin1Char('/'))) {
+        QMessageBox::warning(this, tr("Nuevo archivo"),
+                             tr("Escribe un nombre de archivo dentro de la carpeta (puede incluir subcarpetas)."));
+        return;
+    }
+    const QString target = QDir::cleanPath(QDir(dir).filePath(relative));
+    if (QFileInfo::exists(target)) {
+        QMessageBox::warning(this, tr("Nuevo archivo"), tr("Ya existe «%1» en esa carpeta.").arg(relative));
+        return;
+    }
+    QFile file(target);
+    if (!QDir().mkpath(QFileInfo(target).absolutePath()) || !file.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+        QMessageBox::warning(this, tr("Nuevo archivo"),
+                             tr("No se pudo crear «%1».\n\n%2").arg(relative, file.errorString()));
+        return;
+    }
+    file.close();
+
+    const QModelIndex parentIdx = m_fsProxy->mapFromSource(m_fsModel->index(dir));
+    if (parentIdx.isValid())
+        m_tree->expand(parentIdx);
+    openFile(target);
+    statusBar()->showMessage(tr("Creado %1").arg(QDir::toNativeSeparators(target)), 3000);
+    m_git->refreshRepositoryContaining(target);
 }
 
 void MainWindow::renamePath(const QString &path)

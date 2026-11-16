@@ -83,9 +83,16 @@ archivos abiertos.
 - **Clic derecho en el panel de carpetas**:
   - Archivo: abrir, *Ejecutar* (`.bat`/`.cmd` en Windows, `.sh` en Linux; en una consola nueva que
     queda abierta), abrir la carpeta en el explorador con el archivo seleccionado, abrir una
-    terminal en su carpeta, renombrar (`F2`) y copiar la ruta.
-  - Carpeta: abrir una terminal ahí (Windows Terminal si está instalado, si no `cmd`), abrir en el
-    explorador, renombrar (`F2`) y copiar la ruta.
+    terminal en su carpeta, crear un archivo nuevo en su carpeta, renombrar (`F2`) y copiar la ruta.
+  - Carpeta: **Nuevo archivo…**, abrir una terminal ahí (Windows Terminal si está instalado, si no
+    `cmd`), abrir en el explorador, renombrar (`F2`) y copiar la ruta.
+  - Zona vacía del panel: **Nuevo archivo…** en la carpeta abierta.
+  - Archivo o carpeta: **Eliminar…** (`Supr`) los mueve a la papelera, las carpetas con todo su
+    contenido, tras confirmar. Funciona con varios elementos seleccionados y cierra las pestañas
+    de los archivos borrados (avisa antes si alguna tiene cambios sin guardar). Si no hay
+    papelera disponible, ofrece eliminarlos definitivamente.
+  - *Nuevo archivo…* pide el nombre, crea el archivo vacío y lo abre en una pestaña. El nombre
+    puede incluir subcarpetas (`src/util.cpp`), que se crean si no existen.
   - Al renombrar, las pestañas abiertas de ese archivo (o de los archivos de esa carpeta) se actualizan.
 - **Arrastrar y soltar en el panel de carpetas**: arrastra archivos o carpetas (también varios con
   `Ctrl`/`Shift`) a otra carpeta del proyecto; si mantienes el ratón sobre una carpeta cerrada,
@@ -111,6 +118,9 @@ superior con la rama actual, «Abrir en el editor» y «Actualizar» (`F5`), y *
      empieza desplegada, y el estado de cada carpeta se conserva al actualizar.
    - Clic en una rama, rama remota, etiqueta o stash: salta a su commit.
    - Doble clic en una rama local (o menú contextual): cambia a esa rama, con confirmación.
+   - Al cambiar de rama (de cualquier forma), los **submódulos** que tengan una rama con el mismo
+     nombre cambian también a ella: la local si existe, si no la del remoto (`--track`). Los que
+     no la tienen se quedan como están. Doble clic en la rama actual solo alinea los submódulos.
    - Doble clic en una rama remota (o menú contextual): si no existe en local, crea la rama local
      enlazada a la remota y cambia a ella (`git switch --track origin/<rama>`); si ya existe,
      cambia a la local.

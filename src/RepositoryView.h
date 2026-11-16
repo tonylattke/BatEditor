@@ -101,6 +101,11 @@ private:
     void showSwitchPalette();
     void createBranch();
     void finishCommand(bool ok);
+    // Al cambiar de rama, los submódulos con una rama del mismo nombre cambian también
+    void switchBranchWithGit(const QStringList &args, const QString &title, const QString &branch);
+    QList<QStringList> submoduleSwitchCommands(const QString &branch) const;
+    void switchSubmodulesTo(const QString &branch);
+    void runNextSubmoduleSwitch();
     void showCommandOutput();
     QStringList mergeableBranches(QStringList *descriptions) const;
 
@@ -150,6 +155,12 @@ private:
     QString m_runningTitle;
     QString m_commandOutput;
     int m_runCounter = 0;
+    QString m_switchSubmodulesTo;             // rama a la que seguirán los submódulos al terminar el comando
+    QList<QStringList> m_submoduleQueue;      // "git -C <submódulo> switch …" pendientes
+    bool m_submoduleQueueActive = false;
+    QString m_submoduleQueueBranch;
+    int m_submoduleQueueTotal = 0;
+    QStringList m_submoduleFailures;
     QWidget *m_outputBar = nullptr;
     QLabel *m_outputLabel = nullptr;
     QToolButton *m_outputDetails = nullptr;
