@@ -115,6 +115,7 @@ private:
     void onLocationDoubleClicked(QTreeWidgetItem *item);
     void showLocationMenu(const QPoint &pos);
     void checkout(const QString &branch);
+    void checkoutRemoteBranch(const QString &remoteBranch, const QString &remote);
     void openSubmodule(const QString &path);
     void renameBranch(const QString &branch);
     void deleteBranch(const QString &branch, const QString &target);

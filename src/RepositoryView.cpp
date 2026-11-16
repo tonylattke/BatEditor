@@ -81,6 +81,7 @@ enum Roles {
     SectionRole,  // Archivos: staged / unstaged / untracked / commit
     SectionHeaderRole, // cabecera de sección (id) en la pestaña Archivos
     CodeRole,     // Archivos: código de estado
+    RemoteRole,   // Ubicaciones: remoto de una rama remota ("origin")
 };
 
 enum RefKind { RefNone, RefBranch, RefRemoteBranch, RefTag, RefStash, RefSubmodule, RefFolder, RefOther };
@@ -569,7 +570,8 @@ void RepositoryView::reloadLocations()
             QTreeWidgetItem *parent = placeInFolders(r, QStringLiteral("remote:") + it.key(), relative, false);
             QTreeWidgetItem *rb = child(parent, leafName(relative), b.target, RefRemoteBranch);
             rb->setData(0, IdRole, b.name);
-            rb->setToolTip(0, b.name);
+            rb->setData(0, RemoteRole, it.key());
+            rb->setToolTip(0, b.name + QLatin1Char('\n') + tr("Doble clic para trabajar en esta rama localmente"));
         }
     }
 
@@ -1047,8 +1049,32 @@ void RepositoryView::onLocationDoubleClicked(QTreeWidgetItem *item)
     const int kind = item->data(0, RefKindRole).toInt();
     if (kind == RefBranch)
         checkout(item->data(0, IdRole).toString());
+    else if (kind == RefRemoteBranch)
+        checkoutRemoteBranch(item->data(0, IdRole).toString(), item->data(0, RemoteRole).toString());
     else if (kind == RefSubmodule)
         openSubmodule(item->data(0, IdRole).toString());
+}
+
+// "origin/feature/x": si ya hay una rama local "feature/x" se cambia a ella; si no, se crea
+// enlazada a la remota (git switch --track) y se cambia a ella.
+void RepositoryView::checkoutRemoteBranch(const QString &remoteBranch, const QString &remote)
+{
+    const QString local = remoteBranch.mid(remote.size() + 1);
+    if (local.isEmpty())
+        return;
+    for (const auto &b : m_repo.locations().branches)
+        if (b.name == local) {
+            checkout(local);
+            return;
+        }
+    const auto answer = QMessageBox::question(
+        this, tr("Cambiar de rama"),
+        tr("¿Crear la rama local «%1» desde «%2» y cambiar a ella?").arg(local, remoteBranch));
+    if (answer != QMessageBox::Yes)
+        return;
+    m_workingSelected = true;
+    runGit({QStringLiteral("switch"), QStringLiteral("--track"), remoteBranch},
+           QStringLiteral("git switch --track ") + remoteBranch);
 }
 
 void RepositoryView::openSubmodule(const QString &path)
@@ -1081,6 +1107,12 @@ void RepositoryView::showLocationMenu(const QPoint &pos)
     const QString current = m_repo.branchName();
     if (kind == RefBranch)
         menu.addAction(tr("Cambiar a «%1»").arg(name), this, [this, name] { checkout(name); });
+    if (kind == RefRemoteBranch) {
+        const QString remote = item->data(0, RemoteRole).toString();
+        QAction *a = menu.addAction(tr("Cambiar a «%1» (rama local)").arg(name.mid(remote.size() + 1)), this,
+                                    [this, name, remote] { checkoutRemoteBranch(name, remote); });
+        a->setEnabled(!isBusy());
+    }
     if ((kind == RefBranch || kind == RefRemoteBranch) && name != current && !m_repo.isHeadDetached())
         menu.addAction(tr("Fusionar «%1» en «%2»…").arg(name, current), this, [this, name] { showMergeOptions(name); });
     if (kind == RefOther && item->parent()->data(0, IdRole).toString() == QLatin1String("remotes")) {

@@ -443,6 +443,10 @@ EN = {
     'Mover %1 arriba': 'Move %1 up',
     'Mover %1 abajo': 'Move %1 down',
     'Eliminar %1': 'Drop %1',
+    # Ramas remotas
+    'Doble clic para trabajar en esta rama localmente': 'Double-click to work on this branch locally',
+    '¿Crear la rama local «%1» desde «%2» y cambiar a ella?': 'Create local branch "%1" from "%2" and switch to it?',
+    'Cambiar a «%1» (rama local)': 'Switch to "%1" (local branch)',
     # Submódulos
     'Doble clic para abrir el submódulo en una pestaña': 'Double-click to open the submodule in a tab',
     'Abrir submódulo en una pestaña': 'Open Submodule in a Tab',

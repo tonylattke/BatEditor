@@ -111,6 +111,9 @@ superior con la rama actual, «Abrir en el editor» y «Actualizar» (`F5`), y *
      empieza desplegada, y el estado de cada carpeta se conserva al actualizar.
    - Clic en una rama, rama remota, etiqueta o stash: salta a su commit.
    - Doble clic en una rama local (o menú contextual): cambia a esa rama, con confirmación.
+   - Doble clic en una rama remota (o menú contextual): si no existe en local, crea la rama local
+     enlazada a la remota y cambia a ella (`git switch --track origin/<rama>`); si ya existe,
+     cambia a la local.
    - Doble clic en un submódulo (o menú contextual): lo abre en una pestaña nueva, tal como esté
      (su rama o commit actual), y se usa como cualquier otro repositorio. Si aún no está
      descargado, ofrece `git submodule update --init`.
