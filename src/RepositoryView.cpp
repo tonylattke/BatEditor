@@ -45,6 +45,7 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
 #include <QVBoxLayout>
 
 #ifdef Q_OS_WIN
@@ -57,6 +58,7 @@
 #include <windows.h> // CREATE_NO_WINDOW
 #endif
 
+#include <algorithm>
 #include <functional>
 
 namespace {
@@ -81,7 +83,7 @@ enum Roles {
     CodeRole,     // Archivos: código de estado
 };
 
-enum RefKind { RefNone, RefBranch, RefRemoteBranch, RefTag, RefStash, RefSubmodule, RefOther };
+enum RefKind { RefNone, RefBranch, RefRemoteBranch, RefTag, RefStash, RefSubmodule, RefFolder, RefOther };
 
 QString formatDate(const QDateTime &dt)
 {
@@ -473,11 +475,16 @@ void RepositoryView::reload()
 
 void RepositoryView::reloadLocations()
 {
-    // Recuerda qué grupos estaban expandidos
+    // Recuerda qué grupos y carpetas de ramas estaban expandidos
     QSet<QString> expanded;
-    for (int i = 0; i < m_locations->topLevelItemCount(); ++i)
-        if (m_locations->topLevelItem(i)->isExpanded())
-            expanded.insert(m_locations->topLevelItem(i)->data(0, IdRole).toString());
+    QSet<QString> knownFolders;
+    for (QTreeWidgetItemIterator it(m_locations); *it; ++it) {
+        const QString id = (*it)->data(0, IdRole).toString();
+        if ((*it)->data(0, RefKindRole).toInt() == RefFolder)
+            knownFolders.insert(id);
+        if ((*it)->isExpanded())
+            expanded.insert(id);
+    }
     const bool first = m_locations->topLevelItemCount() == 0;
 
     m_locations->clear();
@@ -501,17 +508,53 @@ void RepositoryView::reloadLocations()
         return it;
     };
 
+    // "feature/login" se muestra como "login" dentro de la carpeta "feature". Las carpetas nuevas
+    // empiezan plegadas salvo la que contiene la rama actual.
+    auto sortedRefs = [](QList<GitRepository::RefInfo> refs) {
+        std::sort(refs.begin(), refs.end(), [](const auto &a, const auto &b) {
+            return a.name.compare(b.name, Qt::CaseInsensitive) < 0;
+        });
+        return refs;
+    };
+    auto placeInFolders = [&](QTreeWidgetItem *root, const QString &rootId, const QString &relativeName,
+                              bool containsHead) {
+        QStringList parts = relativeName.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        parts.removeLast();
+        QTreeWidgetItem *parent = root;
+        QString prefix;
+        for (const QString &part : parts) {
+            prefix += part + QLatin1Char('/');
+            const QString id = rootId + QLatin1Char(':') + prefix;
+            QTreeWidgetItem *folder = nullptr;
+            for (int i = 0; i < parent->childCount() && !folder; ++i)
+                if (parent->child(i)->data(0, IdRole).toString() == id)
+                    folder = parent->child(i);
+            if (!folder) {
+                folder = child(parent, part, QString(), RefFolder);
+                folder->setData(0, IdRole, id);
+                folder->setExpanded(knownFolders.contains(id) ? expanded.contains(id) : false);
+            }
+            if (containsHead && !knownFolders.contains(id))
+                folder->setExpanded(true);
+            parent = folder;
+        }
+        return parent;
+    };
+    auto leafName = [](const QString &name) { return name.section(QLatin1Char('/'), -1); };
+
     QTreeWidgetItem *branches = group(QStringLiteral("branches"), tr("Ramas"), loc.branches.size());
-    for (const auto &b : loc.branches) {
-        QTreeWidgetItem *it = child(branches, b.name, b.target, RefBranch);
+    for (const auto &b : sortedRefs(loc.branches)) {
+        QTreeWidgetItem *parent = placeInFolders(branches, QStringLiteral("branches"), b.name, b.isHead);
+        QTreeWidgetItem *it = child(parent, leafName(b.name), b.target, RefBranch);
+        it->setData(0, IdRole, b.name);
         if (b.isHead) {
             QFont f = it->font(0);
             f.setBold(true);
             it->setFont(0, f);
-            it->setText(0, QStringLiteral("● ") + b.name);
+            it->setText(0, QStringLiteral("● ") + leafName(b.name));
             it->setForeground(0, Theme::colors().accent);
         }
-        it->setToolTip(0, tr("Doble clic para cambiar a esta rama"));
+        it->setToolTip(0, b.name + QLatin1Char('\n') + tr("Doble clic para cambiar a esta rama"));
     }
 
     int remoteCount = 0;
@@ -521,9 +564,12 @@ void RepositoryView::reloadLocations()
     for (auto it = loc.remotes.cbegin(); it != loc.remotes.cend(); ++it) {
         QTreeWidgetItem *r = child(remotes, it.key(), QString(), RefOther);
         r->setExpanded(true);
-        for (const auto &b : it.value()) {
-            QTreeWidgetItem *rb = child(r, b.name.mid(it.key().size() + 1), b.target, RefRemoteBranch);
+        for (const auto &b : sortedRefs(it.value())) {
+            const QString relative = b.name.mid(it.key().size() + 1);
+            QTreeWidgetItem *parent = placeInFolders(r, QStringLiteral("remote:") + it.key(), relative, false);
+            QTreeWidgetItem *rb = child(parent, leafName(relative), b.target, RefRemoteBranch);
             rb->setData(0, IdRole, b.name);
+            rb->setToolTip(0, b.name);
         }
     }
 

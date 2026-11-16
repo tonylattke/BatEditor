@@ -106,6 +106,9 @@ el modo editor, si es un repositorio, también se añade aquí. Cada repositorio
 superior con la rama actual, «Abrir en el editor» y «Actualizar» (`F5`), y **tres secciones**:
 
 1. **Ubicaciones**: ramas, remotos, etiquetas, stashes, submódulos y worktrees, con su número.
+   - Las ramas locales y remotas se ordenan y se agrupan en carpetas según el prefijo con `/`
+     (`feature/login` aparece como `login` dentro de `feature`). La carpeta de la rama actual
+     empieza desplegada, y el estado de cada carpeta se conserva al actualizar.
    - Clic en una rama, rama remota, etiqueta o stash: salta a su commit.
    - Doble clic en una rama local (o menú contextual): cambia a esa rama, con confirmación.
    - Doble clic en un submódulo (o menú contextual): lo abre en una pestaña nueva, tal como esté
