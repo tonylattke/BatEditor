@@ -1334,6 +1334,7 @@ void MainWindow::showFolderTreeMenu(const QPoint &pos)
             return;
         QMenu menu(this);
         menu.addAction(tr("Nuevo archivo…"), this, [this] { createFileIn(m_rootPath); });
+        menu.addAction(tr("Nueva carpeta…"), this, [this] { createFolderIn(m_rootPath); });
         menu.exec(m_tree->viewport()->mapToGlobal(pos));
         return;
     }
@@ -1344,6 +1345,7 @@ void MainWindow::showFolderTreeMenu(const QPoint &pos)
     QMenu menu(this);
     if (info.isDir()) {
         menu.addAction(tr("Nuevo archivo…"), this, [this, path] { createFileIn(path); });
+        menu.addAction(tr("Nueva carpeta…"), this, [this, path] { createFolderIn(path); });
         menu.addSeparator();
         menu.addAction(tr("Abrir terminal aquí"), this, [this, path] { openTerminal(path); });
         menu.addAction(tr("Abrir en el explorador"), this, [this, path] { revealInExplorer(path); });
@@ -1359,6 +1361,8 @@ void MainWindow::showFolderTreeMenu(const QPoint &pos)
                        [this, info] { openTerminal(info.absolutePath()); });
         menu.addAction(tr("Nuevo archivo en esta carpeta…"), this,
                        [this, info] { createFileIn(info.absolutePath()); });
+        menu.addAction(tr("Nueva carpeta en esta carpeta…"), this,
+                       [this, info] { createFolderIn(info.absolutePath()); });
         menu.addSeparator();
         QAction *rename = menu.addAction(tr("Renombrar…"), this, [this, path] { renamePath(path); });
         rename->setShortcut(QKeySequence(Qt::Key_F2));
@@ -1525,6 +1529,47 @@ void MainWindow::createFileIn(const QString &dir)
     openFile(target);
     statusBar()->showMessage(tr("Creado %1").arg(QDir::toNativeSeparators(target)), 3000);
     m_git->refreshRepositoryContaining(target);
+}
+
+// Como createFileIn: el nombre puede incluir subcarpetas ("assets/icons").
+void MainWindow::createFolderIn(const QString &dir)
+{
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, tr("Nueva carpeta"),
+                                               tr("Nombre de la carpeta en «%1»:").arg(QDir(dir).dirName()),
+                                               QLineEdit::Normal, QString(), &ok)
+                             .trimmed();
+    if (!ok || name.isEmpty())
+        return;
+    QString relative = QDir::fromNativeSeparators(name);
+    while (relative.endsWith(QLatin1Char('/')))
+        relative.chop(1);
+    if (relative.isEmpty() || QDir::isAbsolutePath(relative)
+        || relative.split(QLatin1Char('/')).contains(QLatin1String(".."))) {
+        QMessageBox::warning(this, tr("Nueva carpeta"),
+                             tr("Escribe un nombre de carpeta dentro de la carpeta (puede incluir subcarpetas)."));
+        return;
+    }
+    const QString target = QDir::cleanPath(QDir(dir).filePath(relative));
+    if (QFileInfo::exists(target)) {
+        QMessageBox::warning(this, tr("Nueva carpeta"), tr("Ya existe «%1» en esa carpeta.").arg(relative));
+        return;
+    }
+    if (!QDir().mkpath(target)) {
+        QMessageBox::warning(this, tr("Nueva carpeta"),
+                             tr("No se pudo crear «%1».\n\nPuede que no tengas permiso.").arg(relative));
+        return;
+    }
+
+    const QModelIndex parentIdx = m_fsProxy->mapFromSource(m_fsModel->index(dir));
+    if (parentIdx.isValid())
+        m_tree->expand(parentIdx);
+    const QModelIndex created = m_fsProxy->mapFromSource(m_fsModel->index(target));
+    if (created.isValid()) {
+        m_tree->setCurrentIndex(created);
+        m_tree->scrollTo(created);
+    }
+    statusBar()->showMessage(tr("Creada %1").arg(QDir::toNativeSeparators(target)), 3000);
 }
 
 void MainWindow::renamePath(const QString &path)

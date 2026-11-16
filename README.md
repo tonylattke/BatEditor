@@ -83,10 +83,10 @@ archivos abiertos.
 - **Clic derecho en el panel de carpetas**:
   - Archivo: abrir, *Ejecutar* (`.bat`/`.cmd` en Windows, `.sh` en Linux; en una consola nueva que
     queda abierta), abrir la carpeta en el explorador con el archivo seleccionado, abrir una
-    terminal en su carpeta, crear un archivo nuevo en su carpeta, renombrar (`F2`) y copiar la ruta.
-  - Carpeta: **Nuevo archivo…**, abrir una terminal ahí (Windows Terminal si está instalado, si no
+    terminal en su carpeta, crear un archivo o una carpeta nuevos en su carpeta, renombrar (`F2`) y copiar la ruta.
+  - Carpeta: **Nuevo archivo…**, **Nueva carpeta…** (también acepta subcarpetas, `assets/icons`), abrir una terminal ahí (Windows Terminal si está instalado, si no
     `cmd`), abrir en el explorador, renombrar (`F2`) y copiar la ruta.
-  - Zona vacía del panel: **Nuevo archivo…** en la carpeta abierta.
+  - Zona vacía del panel: **Nuevo archivo…** y **Nueva carpeta…** en la carpeta abierta.
   - Archivo o carpeta: **Eliminar…** (`Supr`) los mueve a la papelera, las carpetas con todo su
     contenido, tras confirmar. Funciona con varios elementos seleccionados y cierra las pestañas
     de los archivos borrados (avisa antes si alguna tiene cambios sin guardar). Si no hay

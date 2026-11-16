@@ -49,6 +49,7 @@ private:
     // Menú contextual del explorador de carpetas
     void showFolderTreeMenu(const QPoint &pos);
     void createFileIn(const QString &dir);
+    void createFolderIn(const QString &dir);
     QStringList selectedTreePaths(const QModelIndex &clicked) const;
     void deletePaths(const QStringList &paths);   // a la papelera, con confirmación
     void renamePath(const QString &path);

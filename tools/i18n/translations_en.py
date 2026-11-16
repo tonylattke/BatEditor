@@ -451,6 +451,15 @@ EN = {
         'Enter a file name inside the folder (it may include subfolders).',
     'No se pudo crear «%1».\n\n%2': 'Could not create "%1".\n\n%2',
     'Creado %1': 'Created %1',
+    # Explorador: nueva carpeta
+    'Nueva carpeta…': 'New Folder…',
+    'Nueva carpeta en esta carpeta…': 'New Folder in This Folder…',
+    'Nueva carpeta': 'New Folder',
+    'Nombre de la carpeta en «%1»:': 'Folder name in "%1":',
+    'Escribe un nombre de carpeta dentro de la carpeta (puede incluir subcarpetas).':
+        'Enter a folder name inside the folder (it may include subfolders).',
+    'No se pudo crear «%1».\n\nPuede que no tengas permiso.': 'Could not create "%1".\n\nYou may not have permission.',
+    'Creada %1': 'Created %1',
     # Explorador: eliminar
     'Eliminar %1 elementos…': 'Delete %1 Items…',
     'Eliminar…': 'Delete…',
