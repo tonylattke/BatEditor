@@ -28,6 +28,7 @@ public:
         QString author;
         QDateTime time;
         int parentCount = 0;
+        QStringList parents;   // SHA completos (solo en log())
     };
     struct RefInfo {
         QString name;       // nombre corto ("master", "origin/master", "v1.0", "stash@{0}")

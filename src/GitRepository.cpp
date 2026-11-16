@@ -383,6 +383,10 @@ QList<GitRepository::CommitInfo> GitRepository::log(int maxCount, bool allRefs) 
         info.author = QString::fromUtf8(author->name);
         info.time = QDateTime::fromSecsSinceEpoch(author->when.time);
         info.parentCount = int(git_commit_parentcount(commit.get()));
+        for (unsigned i = 0; i < unsigned(info.parentCount); ++i) {
+            git_oid_tostr(full, sizeof(full), git_commit_parent_id(commit.get(), i));
+            info.parents << QString::fromLatin1(full);
+        }
         result << info;
     }
     return result;

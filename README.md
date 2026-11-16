@@ -120,8 +120,9 @@ superior con la rama actual, «Abrir en el editor» y «Actualizar» (`F5`), y *
      El cambio es «seguro»: no sobrescribe cambios locales que entren en conflicto.
    - Se oculta y se muestra con el botón ◧ de la barra.
 2. **Commits / Archivos**
-   - *Commits*: historial de todas las ramas (hasta 1000 commits) con línea de nodos, autor,
-     fecha y etiquetas de ramas, remotos y tags. El primer elemento son los **cambios actuales**
+   - *Commits*: historial de todas las ramas (hasta 1000 commits) con el grafo de ramas (un
+     carril de color por rama, curvas en las bifurcaciones y los merges, nodo hueco en los
+     commits de merge), autor, fecha y etiquetas de ramas, remotos y tags. El primer elemento son los **cambios actuales**
      («2 sin preparar, 1 sin seguimiento · Confirmar cambios»).
    - *Archivos*: los archivos del commit seleccionado o de los cambios actuales. Al hacer clic
      en uno, el detalle se desplaza a su diff.
@@ -278,6 +279,7 @@ src/
   DiffHighlighter.*        Colores para diffs unificados
   GitRepository.*          Envoltorio RAII sobre libgit2: estado, diffs por archivo, stage,
                            commit, historial, ramas, remotos, tags, stashes, checkout
+  CommitGraph.*            Distribución en carriles del grafo de commits
   RebaseHelper.*           Modo sin ventana que hace de editor de git en los rebases del menú de commits
   GitWorkspace.*           Modo Git: una pestaña por repositorio
   RepositoryView.*         Las tres secciones de un repositorio (ubicaciones, commits, detalle)
@@ -293,7 +295,6 @@ tools/i18n/                Script y textos para regenerar las traducciones
 
 - Preparar cambios por bloque o por línea (*hunks*) desde la vista de diff.
 - Diff lado a lado, números de línea en el diff y vista de *blame*.
-- Grafo real de ramas en la lista de commits.
 - Resolver conflictos dentro de BatCode.
 - Búsqueda en el historial.
 - Paleta de comandos para el modo editor.

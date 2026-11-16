@@ -1,5 +1,6 @@
 #include "RepositoryView.h"
 
+#include "CommitGraph.h"
 #include "FileDiffWidget.h"
 #include "GitCommandPalette.h"
 #include "RebaseHelper.h"
@@ -82,6 +83,7 @@ enum Roles {
     SectionHeaderRole, // cabecera de sección (id) en la pestaña Archivos
     CodeRole,     // Archivos: código de estado
     RemoteRole,   // Ubicaciones: remoto de una rama remota ("origin")
+    GraphRole,    // Commits: CommitGraph::Row de la fila
 };
 
 enum RefKind { RefNone, RefBranch, RefRemoteBranch, RefTag, RefStash, RefSubmodule, RefFolder, RefOther };
@@ -121,18 +123,20 @@ public:
         else if (hover)
             p->fillRect(r, c.currentLine);
 
-        // Línea vertical y nodo
-        const int gx = r.left() + 16;
         const int cy = r.top() + r.height() / 2;
-        QPen linePen(c.accent.darker(150), 2);
-        p->setPen(linePen);
-        p->drawLine(gx, row == 0 ? cy : r.top(), gx, row == rows - 1 ? cy : r.bottom() + 1);
-        if (working) {
-            p->setPen(QPen(c.accent, 2));
-            p->setBrush(c.background);
-            p->drawEllipse(QPoint(gx, cy), 5, 5);
+        const bool merge = index.data(MergeRole).toBool();
+        const QVariant graphData = index.data(GraphRole);
+        QColor nodeColor = c.accent;
+        int x0 = r.left() + 34;
+        if (graphData.isValid()) {
+            const auto g = graphData.value<CommitGraph::Row>();
+            nodeColor = laneColor(g.color);
+            x0 = paintGraph(p, r, g, working, merge);
         } else {
-            const bool merge = index.data(MergeRole).toBool();
+            // Sin grafo (historial de un archivo): una sola línea
+            const int gx = r.left() + 16;
+            p->setPen(QPen(c.accent.darker(150), 2));
+            p->drawLine(gx, row == 0 ? cy : r.top(), gx, row == rows - 1 ? cy : r.bottom() + 1);
             p->setPen(Qt::NoPen);
             p->setBrush(c.accent);
             p->drawEllipse(QPoint(gx, cy), merge ? 6 : 4, merge ? 6 : 4);
@@ -140,7 +144,6 @@ public:
 
         QFont base = option.font;
         const QFontMetrics fm(base);
-        const int x0 = r.left() + 34;
         const int right = r.right() - 10;
         const int line1 = r.top() + 7;
         const int line2 = line1 + fm.height() + 2;
@@ -175,7 +178,7 @@ public:
                 break;
             const QRect br(badgeX - w, line2 + 1, w, sfm.height() + 2);
             const bool isRemote = label.contains(QLatin1Char('/'));
-            QColor bg = isTag ? c.preproc.darker(170) : (isRemote ? c.border.lighter(130) : c.function.darker(140));
+            QColor bg = isTag ? c.preproc.darker(170) : (isRemote ? c.border.lighter(130) : nodeColor.darker(150));
             if (label == QLatin1String("HEAD"))
                 bg = c.removed.darker(150);
             QPainterPath path;
@@ -193,6 +196,70 @@ public:
                                    .elidedText(index.data(AuthorRole).toString(), Qt::ElideRight, badgeX - x0 - 6);
         p->drawText(QRect(x0, line2, badgeX - x0, fm.height()), Qt::AlignLeft | Qt::AlignVCenter, author);
         p->restore();
+    }
+
+private:
+    static constexpr int kGraphMargin = 6;
+    static constexpr int kLaneWidth = 14;
+    static constexpr int kMaxLanes = 12;   // más carriles se recortan para no tapar el texto
+
+    static QColor laneColor(int index)
+    {
+        const Theme::Colors &c = Theme::colors();
+        const QColor palette[] = {c.function, c.preproc, c.keyword, c.string, c.type, c.number, c.accent, c.removed};
+        return palette[index % int(std::size(palette))];
+    }
+
+    // Dibuja los carriles y el nodo de la fila; devuelve la x donde empieza el texto
+    static int paintGraph(QPainter *p, const QRect &r, const CommitGraph::Row &g, bool working, bool merge)
+    {
+        const Theme::Colors &c = Theme::colors();
+        const int lanes = std::min(g.laneCount, kMaxLanes);
+        const QRect area(r.left(), r.top(), kGraphMargin + lanes * kLaneWidth, r.height());
+        auto laneX = [&](int lane) { return qreal(r.left() + kGraphMargin + lane * kLaneWidth + kLaneWidth / 2); };
+        auto anchorY = [&](CommitGraph::Anchor a) {
+            return a == CommitGraph::Top ? qreal(r.top())
+                                         : a == CommitGraph::Center ? r.top() + r.height() / 2.0 : qreal(r.bottom() + 1);
+        };
+
+        p->save();
+        p->setClipRect(area);
+        p->setBrush(Qt::NoBrush);
+        for (const CommitGraph::Edge &e : g.edges) {
+            QPen pen(laneColor(e.color), 2);
+            if (e.dashed)
+                pen.setStyle(Qt::DashLine);
+            p->setPen(pen);
+            const QPointF a(laneX(e.fromLane), anchorY(e.from));
+            const QPointF b(laneX(e.toLane), anchorY(e.to));
+            if (e.fromLane == e.toLane) {
+                p->drawLine(a, b);
+            } else {
+                // Curva suave entre carriles, vertical en los extremos
+                QPainterPath path(a);
+                const qreal midY = (a.y() + b.y()) / 2;
+                path.cubicTo(a.x(), midY, b.x(), midY, b.x(), b.y());
+                p->drawPath(path);
+            }
+        }
+
+        const QPointF node(laneX(g.lane), r.top() + r.height() / 2.0);
+        const QColor color = laneColor(g.color);
+        if (working) {
+            p->setPen(QPen(color, 2));
+            p->setBrush(c.background);
+            p->drawRoundedRect(QRectF(node.x() - 5, node.y() - 5, 10, 10), 2, 2);
+        } else if (merge) {
+            p->setPen(QPen(color, 2));
+            p->setBrush(c.background);
+            p->drawEllipse(node, 4.5, 4.5);
+        } else {
+            p->setPen(Qt::NoPen);
+            p->setBrush(color);
+            p->drawEllipse(node, 5, 5);
+        }
+        p->restore();
+        return area.right() + 8;
     }
 };
 
@@ -626,8 +693,21 @@ void RepositoryView::reloadCommits()
     const QHash<QString, QStringList> labels = m_repo.refLabels();
     const QString head = m_repo.headCommitId();
     QListWidgetItem *toSelect = wasWorking ? working : nullptr;
-    for (const auto &ci : m_repo.log(kMaxCommits, true)) {
+    const QList<GitRepository::CommitInfo> history = m_repo.log(kMaxCommits, true);
+
+    // Grafo: los cambios actuales son una fila más cuyo padre es HEAD (línea discontinua)
+    QList<CommitGraph::Input> graphInput;
+    graphInput.reserve(history.size() + 1);
+    graphInput.append({QStringLiteral("<working>"), head.isEmpty() ? QStringList() : QStringList{head}, true});
+    for (const auto &ci : history)
+        graphInput.append({ci.id, ci.parents, false});
+    const QList<CommitGraph::Row> graph = CommitGraph::layout(graphInput);
+    working->setData(GraphRole, QVariant::fromValue(graph.first()));
+
+    for (int i = 0; i < history.size(); ++i) {
+        const GitRepository::CommitInfo &ci = history.at(i);
         auto *item = new QListWidgetItem(m_commits);
+        item->setData(GraphRole, QVariant::fromValue(graph.at(i + 1)));
         item->setData(KindRole, 1);
         item->setData(IdRole, ci.id);
         item->setData(SummaryRole, ci.summary);
