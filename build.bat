@@ -8,6 +8,7 @@ rem  Lo que hace (solo la primera vez descarga cosas):
 rem    1. Carga el entorno de Visual Studio (MSVC x64) con vswhere
 rem    2. Prepara vcpkg en .deps\vcpkg y compila libgit2
 rem    3. Busca Qt 6 (variable QT_DIR, C:\Qt\6.x\msvc2022_64 o .deps\Qt);
+
 rem       si no lo encuentra, lo descarga con aqtinstall en .deps\Qt
 rem    4. Configura y compila con CMake + Ninja en build\windows
 rem    5. Copia las DLL de Qt junto al ejecutable (windeployqt)

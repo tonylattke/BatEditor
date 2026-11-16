@@ -797,6 +797,19 @@ bool GitRepository::discard(const QString &path)
     return check(git_checkout_index(m_repo, nullptr, &opts), "discard");
 }
 
+bool GitRepository::discardAll()
+{
+    if (!m_repo)
+        return false;
+    git_object *raw = nullptr;
+    if (!check(git_revparse_single(&raw, m_repo, "HEAD^{commit}"), "HEAD"))
+        return false;
+    ObjectPtr head(raw);
+    git_checkout_options opts = GIT_CHECKOUT_OPTIONS_INIT;
+    opts.checkout_strategy = GIT_CHECKOUT_FORCE;
+    return check(git_reset(m_repo, head.get(), GIT_RESET_HARD, &opts), "reset");
+}
+
 bool GitRepository::commit(const QString &message, QString *newCommitId)
 {
     if (!m_repo)

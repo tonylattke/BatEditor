@@ -559,6 +559,18 @@ EN = {
     'ahora mismo ninguno': 'none right now',
     'Cambiar también los submódulos': 'Switch Submodules Too',
     'Solo el proyecto': 'Project Only',
+    'Preparar todo (stage all)': 'Stage All',
+    'Quitar todo de preparados': 'Unstage All',
+    'Descartar todos los cambios (discard all)…': 'Discard All Changes…',
+    'Todos los cambios preparados': 'All changes staged',
+    'Descartar todos los cambios': 'Discard All Changes',
+    '¿Descartar todos los cambios, preparados y sin preparar?': 'Discard all changes, staged and unstaged?',
+    '%1 cambio(s) en archivos con seguimiento vuelven a como están en HEAD.': '%1 change(s) in tracked files go back to how they are in HEAD.',
+    '%1 archivo(s) nuevo(s) preparado(s) se mueven a la papelera.': '%1 new staged file(s) are moved to the trash.',
+    'Esta acción no se puede deshacer.': 'This action cannot be undone.',
+    'Mover también a la papelera los %1 archivo(s) sin seguimiento': 'Also move the %1 untracked file(s) to the trash',
+    'Descartar todo': 'Discard All',
+    'Cambios descartados': 'Changes discarded',
 }
 
 # Tabla de atajos (HTML): se traduce por frases

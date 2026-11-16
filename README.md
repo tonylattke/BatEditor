@@ -138,7 +138,10 @@ superior con la rama actual, «Abrir en el editor» y «Actualizar» (`F5`), y *
    - *Commits*: historial de todas las ramas (hasta 1000 commits) con el grafo de ramas (un
      carril de color por rama, curvas en las bifurcaciones y los merges, nodo hueco en los
      commits de merge), autor, fecha y etiquetas de ramas, remotos y tags. El primer elemento son los **cambios actuales**
-     («2 sin preparar, 1 sin seguimiento · Confirmar cambios»).
+     («2 sin preparar, 1 sin seguimiento · Confirmar cambios»). Su clic derecho ofrece
+     **Preparar todo**, **Quitar todo de preparados** y **Descartar todos los cambios…**. Descartar
+     todo pide confirmación: deja los archivos con seguimiento como en HEAD, manda a la papelera los
+     archivos nuevos preparados y, si marcas la casilla, también los que no tienen seguimiento.
    - *Archivos*: los archivos del commit seleccionado o de los cambios actuales. Al hacer clic
      en uno, el detalle se desplaza a su diff.
 3. **Detalle**

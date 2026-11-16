@@ -7,6 +7,7 @@
 #include "Theme.h"
 
 #include <QApplication>
+#include <QCheckBox>
 #include <QClipboard>
 #include <QDir>
 #include <QGridLayout>
@@ -2454,10 +2455,107 @@ void RepositoryView::savePatchFromGit(const QStringList &args, const QString &su
 // ---------------------------------------------------------------------------
 // Menú contextual de la lista de commits
 // ---------------------------------------------------------------------------
+void RepositoryView::showWorkingMenu(const QPoint &globalPos)
+{
+    const GitRepository::Status st = m_repo.status();
+    const bool busy = isBusy();
+    QMenu menu(this);
+    QAction *stage = menu.addAction(tr("Preparar todo (stage all)"));
+    stage->setEnabled(!busy && !st.unstaged.isEmpty());
+    connect(stage, &QAction::triggered, this, &RepositoryView::stageAllChanges);
+    QAction *unstage = menu.addAction(tr("Quitar todo de preparados"));
+    unstage->setEnabled(!busy && !st.staged.isEmpty());
+    connect(unstage, &QAction::triggered, this, [this] {
+        report(m_repo.unstageAll(), tr("quitar de preparados"));
+        reload();
+    });
+    menu.addSeparator();
+    QAction *discard = menu.addAction(tr("Descartar todos los cambios (discard all)…"));
+    discard->setEnabled(!busy && !(st.staged.isEmpty() && st.unstaged.isEmpty()));
+    connect(discard, &QAction::triggered, this, &RepositoryView::discardAllChanges);
+    menu.exec(globalPos);
+}
+
+void RepositoryView::stageAllChanges()
+{
+    const bool ok = m_repo.stageAll();
+    report(ok, tr("preparar"));
+    if (ok)
+        Q_EMIT statusMessage(tr("Todos los cambios preparados"));
+    m_workingSelected = true;
+    reload();
+}
+
+void RepositoryView::discardAllChanges()
+{
+    const GitRepository::Status st = m_repo.status();
+    QStringList untracked, added;
+    int tracked = 0;
+    for (const auto &e : st.unstaged) {
+        if (e.code == QLatin1Char('?'))
+            untracked << e.path;
+        else
+            ++tracked;
+    }
+    for (const auto &e : st.staged)
+        if (e.code == QLatin1Char('A'))
+            added << e.path;   // no están en HEAD: el reset los borraría, mejor a la papelera
+    tracked += int(st.staged.size() - added.size());
+
+    QMessageBox box(QMessageBox::Warning, tr("Descartar todos los cambios"),
+                    tr("¿Descartar todos los cambios, preparados y sin preparar?"), QMessageBox::Cancel, this);
+    QStringList details;
+    if (tracked > 0)
+        details << tr("%1 cambio(s) en archivos con seguimiento vuelven a como están en HEAD.").arg(tracked);
+    if (!added.isEmpty())
+        details << tr("%1 archivo(s) nuevo(s) preparado(s) se mueven a la papelera.").arg(added.size());
+    details << tr("Esta acción no se puede deshacer.");
+    box.setInformativeText(details.join(QStringLiteral("\n\n")));
+    QCheckBox *withUntracked = nullptr;
+    if (!untracked.isEmpty()) {
+        withUntracked = new QCheckBox(
+            tr("Mover también a la papelera los %1 archivo(s) sin seguimiento").arg(untracked.size()), &box);
+        box.setCheckBox(withUntracked);
+    }
+    QPushButton *discard = box.addButton(tr("Descartar todo"), QMessageBox::DestructiveRole);
+    box.setDefaultButton(QMessageBox::Cancel);
+    box.exec();
+    if (box.clickedButton() != discard)
+        return;
+
+    QStringList toTrash = added;
+    if (withUntracked && withUntracked->isChecked())
+        toTrash << untracked;
+    QStringList failed;
+    for (const QString &path : std::as_const(toTrash))
+        if (QFileInfo::exists(absolutePath(path)) && !QFile::moveToTrash(absolutePath(path)))
+            failed << path;
+    bool ok = true;
+    if (m_repo.headCommitId().isEmpty())
+        ok = m_repo.unstageAll();   // sin commits todavía: no hay HEAD al que volver
+    else if (tracked > 0 || !added.isEmpty())
+        ok = m_repo.discardAll();
+    report(ok, tr("descartar"));
+    if (!failed.isEmpty())
+        QMessageBox::warning(this, tr("Descartar todos los cambios"),
+                             tr("No se pudieron mover a la papelera:\n\n%1").arg(failed.join(QLatin1Char('\n'))));
+    else if (ok)
+        Q_EMIT statusMessage(tr("Cambios descartados"));
+    m_workingSelected = true;
+    reload();
+}
+
 void RepositoryView::showCommitMenu(const QPoint &pos)
 {
     QListWidgetItem *item = m_commits->itemAt(pos);
-    if (!item || item->data(KindRole).toInt() != 1)
+    if (!item)
+        return;
+    if (item->data(KindRole).toInt() == 0) {
+        m_commits->setCurrentItem(item);
+        showWorkingMenu(m_commits->viewport()->mapToGlobal(pos));
+        return;
+    }
+    if (item->data(KindRole).toInt() != 1)
         return;
     m_commits->setCurrentItem(item);
     const QString sha = item->data(IdRole).toString();

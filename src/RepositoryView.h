@@ -84,6 +84,9 @@ private:
     void savePatchFromGit(const QStringList &args, const QString &suggestedName);
     // Menú contextual de la lista de commits
     void showCommitMenu(const QPoint &pos);
+    void showWorkingMenu(const QPoint &globalPos);   // fila de cambios sin confirmar
+    void stageAllChanges();
+    void discardAllChanges();
     void checkoutCommit(const QString &sha);
     void createBranchAt(const QString &sha);
     void createTagAt(const QString &sha);

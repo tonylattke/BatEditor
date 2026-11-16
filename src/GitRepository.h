@@ -122,6 +122,7 @@ public:
     bool unstage(const QString &path);
     bool unstageAll();
     bool discard(const QString &path);
+    bool discardAll();   // índice y directorio de trabajo como HEAD (git reset --hard); no toca los sin seguimiento
     bool commit(const QString &message, QString *newCommitId = nullptr);
     bool checkoutBranch(const QString &branchName);
 
