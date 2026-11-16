@@ -7,6 +7,8 @@
 #include <QPointer>
 #include <QWidget>
 
+#include <optional>
+
 class FileDiffWidget;
 class QLabel;
 class QListWidget;
@@ -101,8 +103,20 @@ private:
     void showSwitchPalette();
     void createBranch();
     void finishCommand(bool ok);
-    // Al cambiar de rama, los submódulos con una rama del mismo nombre cambian también
-    void switchBranchWithGit(const QStringList &args, const QString &title, const QString &branch);
+    // Qué hacer con los submódulos después de cambiar de rama
+    enum class SubmoduleSwitch {
+        None,            // no tocarlos (sin submódulos, o rama nueva desde la actual)
+        FollowBranch,    // cambiar a la rama del mismo nombre los que la tengan
+        RecordedCommit,  // dejarlos en el commit que registra la rama (git submodule update)
+    };
+    // Pregunta qué hacer con los submódulos (si hay alguno inicializado); nullopt si se cancela.
+    // Sin submódulos, muestra `question` como confirmación simple si confirmWithoutSubmodules.
+    std::optional<SubmoduleSwitch> askSubmoduleSwitch(const QString &branch, const QString &question,
+                                                      bool confirmWithoutSubmodules);
+    void applySubmoduleSwitch(SubmoduleSwitch mode, const QString &branch);
+    void switchBranchWithGit(const QStringList &args, const QString &title, const QString &branch,
+                             SubmoduleSwitch mode);
+    QStringList initializedSubmodules() const;   // rutas absolutas
     QList<QStringList> submoduleSwitchCommands(const QString &branch) const;
     void switchSubmodulesTo(const QString &branch);
     void runNextSubmoduleSwitch();
@@ -155,7 +169,9 @@ private:
     QString m_runningTitle;
     QString m_commandOutput;
     int m_runCounter = 0;
-    QString m_switchSubmodulesTo;             // rama a la que seguirán los submódulos al terminar el comando
+    // Al terminar el cambio de rama en curso: qué hacer con los submódulos y con qué rama
+    SubmoduleSwitch m_pendingSubmoduleSwitch = SubmoduleSwitch::None;
+    QString m_pendingSubmoduleBranch;
     QList<QStringList> m_submoduleQueue;      // "git -C <submódulo> switch …" pendientes
     bool m_submoduleQueueActive = false;
     QString m_submoduleQueueBranch;

@@ -548,6 +548,17 @@ EN = {
     'Mover': 'Move',
     '%1 movido(s) a %2': '%1 moved to %2',
     '%1 copiado(s) a %2': '%1 copied to %2',
+    'Ya estás en la rama «%1». ¿Qué hago con los submódulos?': 'You are already on branch "%1". What should happen to the submodules?',
+    '¿Crear la rama «%1» y cambiar a ella?': 'Create branch "%1" and switch to it?',
+    'Este repositorio tiene %1 submódulo(s).\n\n'
+    '• Cambiar también los submódulos: los que tienen una rama «%2» cambian a ella (%3); el resto se queda como está.\n\n'
+    '• Solo el proyecto: los submódulos se ponen en el commit que registra «%2» (git submodule update).':
+        'This repository has %1 submodule(s).\n\n'
+        '• Switch submodules too: those with a branch "%2" switch to it (%3); the rest stay as they are.\n\n'
+        '• Project only: submodules are set to the commit recorded by "%2" (git submodule update).',
+    'ahora mismo ninguno': 'none right now',
+    'Cambiar también los submódulos': 'Switch Submodules Too',
+    'Solo el proyecto': 'Project Only',
 }
 
 # Tabla de atajos (HTML): se traduce por frases

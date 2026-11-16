@@ -1148,14 +1148,13 @@ void RepositoryView::checkoutRemoteBranch(const QString &remoteBranch, const QSt
             checkout(local);
             return;
         }
-    const auto answer = QMessageBox::question(
-        this, tr("Cambiar de rama"),
-        tr("¿Crear la rama local «%1» desde «%2» y cambiar a ella?").arg(local, remoteBranch));
-    if (answer != QMessageBox::Yes)
+    const auto mode = askSubmoduleSwitch(
+        local, tr("¿Crear la rama local «%1» desde «%2» y cambiar a ella?").arg(local, remoteBranch), true);
+    if (!mode)
         return;
     m_workingSelected = true;
     switchBranchWithGit({QStringLiteral("switch"), QStringLiteral("--track"), remoteBranch},
-                        QStringLiteral("git switch --track ") + remoteBranch, local);
+                        QStringLiteral("git switch --track ") + remoteBranch, local, *mode);
 }
 
 void RepositoryView::openSubmodule(const QString &path)
@@ -1263,12 +1262,14 @@ void RepositoryView::checkout(const QString &branch)
 {
     // Ya en esa rama: solo se alinean los submódulos
     if (branch == m_repo.branchName()) {
-        switchSubmodulesTo(branch);
+        const auto mode = askSubmoduleSwitch(
+            branch, tr("Ya estás en la rama «%1». ¿Qué hago con los submódulos?").arg(branch), false);
+        if (mode)
+            applySubmoduleSwitch(*mode, branch);
         return;
     }
-    const auto answer = QMessageBox::question(this, tr("Cambiar de rama"),
-                                              tr("¿Cambiar a la rama «%1»?").arg(branch));
-    if (answer != QMessageBox::Yes)
+    const auto mode = askSubmoduleSwitch(branch, tr("¿Cambiar a la rama «%1»?").arg(branch), true);
+    if (!mode)
         return;
     const bool ok = m_repo.checkoutBranch(branch);
     report(ok, tr("cambiar de rama (revisa que no haya cambios que entren en conflicto)"));
@@ -1277,7 +1278,7 @@ void RepositoryView::checkout(const QString &branch)
     m_workingSelected = true;
     reload();
     if (ok)
-        switchSubmodulesTo(branch);
+        applySubmoduleSwitch(*mode, branch);
 }
 
 void RepositoryView::report(bool ok, const QString &action)
@@ -1841,7 +1842,7 @@ void RepositoryView::runGit(const QStringList &args, const QString &title, const
                              tr("No se encontró el programa git.\n\n"
                                 "Las operaciones remotas (pull, push, fetch…) usan tu instalación de Git "
                                 "y sus credenciales. Instálalo desde https://git-scm.com y reinicia BatCode."));
-        m_switchSubmodulesTo.clear();
+        m_pendingSubmoduleSwitch = SubmoduleSwitch::None;
         m_submoduleQueue.clear();
         m_submoduleQueueActive = false;
         return;
@@ -1932,10 +1933,11 @@ void RepositoryView::finishCommand(bool ok)
     reload();
     Q_EMIT commandFinished(ok, m_commandOutput);
 
-    // Cambio de rama terminado: los submódulos siguen a la rama padre
-    const QString switchedTo = std::exchange(m_switchSubmodulesTo, QString());
-    if (ok && !switchedTo.isEmpty()) {
-        switchSubmodulesTo(switchedTo);
+    // Cambio de rama terminado: ahora los submódulos, según lo elegido
+    const SubmoduleSwitch mode = std::exchange(m_pendingSubmoduleSwitch, SubmoduleSwitch::None);
+    const QString switchedTo = std::exchange(m_pendingSubmoduleBranch, QString());
+    if (ok && mode != SubmoduleSwitch::None) {
+        applySubmoduleSwitch(mode, switchedTo);
         return;
     }
     if (m_submoduleQueueActive) {
@@ -1945,14 +1947,66 @@ void RepositoryView::finishCommand(bool ok)
     }
 }
 
+QStringList RepositoryView::initializedSubmodules() const
+{
+    QStringList dirs;
+    for (const QString &path : m_repo.locations().submodules) {
+        const QString dir = absolutePath(path);
+        if (QFileInfo::exists(QDir(dir).filePath(QStringLiteral(".git"))))
+            dirs << dir;
+    }
+    return dirs;
+}
+
+std::optional<RepositoryView::SubmoduleSwitch>
+RepositoryView::askSubmoduleSwitch(const QString &branch, const QString &question, bool confirmWithoutSubmodules)
+{
+    const QStringList submodules = initializedSubmodules();
+    if (submodules.isEmpty()) {
+        if (confirmWithoutSubmodules
+            && QMessageBox::question(this, tr("Cambiar de rama"), question) != QMessageBox::Yes)
+            return std::nullopt;
+        return SubmoduleSwitch::None;
+    }
+
+    QStringList following;
+    for (const QStringList &args : submoduleSwitchCommands(branch))
+        following << QDir(m_repo.workdir()).relativeFilePath(args.at(1));
+
+    QMessageBox box(QMessageBox::Question, tr("Cambiar de rama"), question, QMessageBox::Cancel, this);
+    box.setInformativeText(
+        tr("Este repositorio tiene %1 submódulo(s).\n\n"
+           "• Cambiar también los submódulos: los que tienen una rama «%2» cambian a ella (%3); "
+           "el resto se queda como está.\n\n"
+           "• Solo el proyecto: los submódulos se ponen en el commit que registra «%2» "
+           "(git submodule update).")
+            .arg(submodules.size())
+            .arg(branch, following.isEmpty() ? tr("ahora mismo ninguno") : following.join(QStringLiteral(", "))));
+    QPushButton *recursive = box.addButton(tr("Cambiar también los submódulos"), QMessageBox::AcceptRole);
+    QPushButton *projectOnly = box.addButton(tr("Solo el proyecto"), QMessageBox::AcceptRole);
+    box.setDefaultButton(following.isEmpty() ? projectOnly : recursive);
+    box.exec();
+    if (box.clickedButton() == recursive)
+        return SubmoduleSwitch::FollowBranch;
+    if (box.clickedButton() == projectOnly)
+        return SubmoduleSwitch::RecordedCommit;
+    return std::nullopt;
+}
+
+void RepositoryView::applySubmoduleSwitch(SubmoduleSwitch mode, const QString &branch)
+{
+    if (mode == SubmoduleSwitch::FollowBranch)
+        switchSubmodulesTo(branch);
+    else if (mode == SubmoduleSwitch::RecordedCommit && !isBusy())
+        runGit({QStringLiteral("submodule"), QStringLiteral("update"), QStringLiteral("--recursive")},
+               QStringLiteral("git submodule update --recursive"));
+}
+
 // Submódulos con una rama llamada `branch` (local, o en su remoto) que aún no están en ella
 QList<QStringList> RepositoryView::submoduleSwitchCommands(const QString &branch) const
 {
     QList<QStringList> commands;
-    for (const QString &path : m_repo.locations().submodules) {
-        const QString dir = absolutePath(path);
-        if (!QFileInfo::exists(QDir(dir).filePath(QStringLiteral(".git"))))
-            continue;   // sin inicializar
+    for (const QString &dir : initializedSubmodules()) {
         GitRepository sub;
         if (!sub.open(dir) || QDir::cleanPath(sub.workdir()) != QDir::cleanPath(dir))
             continue;
@@ -1986,10 +2040,13 @@ void RepositoryView::switchSubmodulesTo(const QString &branch)
     runNextSubmoduleSwitch();
 }
 
-void RepositoryView::switchBranchWithGit(const QStringList &args, const QString &title, const QString &branch)
+void RepositoryView::switchBranchWithGit(const QStringList &args, const QString &title, const QString &branch,
+                                         SubmoduleSwitch mode)
 {
-    if (!isBusy())
-        m_switchSubmodulesTo = branch;
+    if (!isBusy()) {
+        m_pendingSubmoduleSwitch = mode;
+        m_pendingSubmoduleBranch = branch;
+    }
     runGit(args, title);
 }
 
@@ -2247,7 +2304,10 @@ void RepositoryView::showSwitchPalette()
             continue;
         const QString name = b.name;
         items.append({name, tr("rama local"), [this, name] {
-                          switchBranchWithGit({QStringLiteral("switch"), name}, QStringLiteral("git switch ") + name, name);
+                          const auto mode = askSubmoduleSwitch(name, tr("¿Cambiar a la rama «%1»?").arg(name), false);
+                          if (mode)
+                              switchBranchWithGit({QStringLiteral("switch"), name}, QStringLiteral("git switch ") + name,
+                                                  name, *mode);
                       }, true});
     }
     if (items.isEmpty()) {
@@ -2265,9 +2325,12 @@ void RepositoryView::createBranch()
                                                tr("Nombre de la nueva rama (se crea desde «%1» y se cambia a ella):")
                                                    .arg(m_repo.branchName()),
                                                QLineEdit::Normal, QString(), &ok).trimmed();
-    if (ok && !name.isEmpty())
+    if (!ok || name.isEmpty())
+        return;
+    const auto mode = askSubmoduleSwitch(name, tr("¿Crear la rama «%1» y cambiar a ella?").arg(name), false);
+    if (mode)
         switchBranchWithGit({QStringLiteral("switch"), QStringLiteral("-c"), name}, QStringLiteral("git switch -c ") + name,
-                            name);
+                            name, *mode);
 }
 
 void RepositoryView::showCommandPalette()
