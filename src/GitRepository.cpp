@@ -440,9 +440,10 @@ int collectStash(size_t index, const char *message, const git_oid *id, void *pay
     return 0;
 }
 
-int collectSubmodule(git_submodule *, const char *name, void *payload)
+int collectSubmodule(git_submodule *sm, const char *name, void *payload)
 {
-    static_cast<QStringList *>(payload)->append(QString::fromUtf8(name));
+    const char *path = git_submodule_path(sm);
+    static_cast<QStringList *>(payload)->append(QString::fromUtf8(path ? path : name));
     return 0;
 }
 

@@ -108,6 +108,9 @@ superior con la rama actual, «Abrir en el editor» y «Actualizar» (`F5`), y *
 1. **Ubicaciones**: ramas, remotos, etiquetas, stashes, submódulos y worktrees, con su número.
    - Clic en una rama, rama remota, etiqueta o stash: salta a su commit.
    - Doble clic en una rama local (o menú contextual): cambia a esa rama, con confirmación.
+   - Doble clic en un submódulo (o menú contextual): lo abre en una pestaña nueva, tal como esté
+     (su rama o commit actual), y se usa como cualquier otro repositorio. Si aún no está
+     descargado, ofrece `git submodule update --init`.
      El cambio es «seguro»: no sobrescribe cambios locales que entren en conflicto.
    - Se oculta y se muestra con el botón ◧ de la barra.
 2. **Commits / Archivos**

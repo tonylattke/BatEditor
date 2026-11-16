@@ -129,6 +129,12 @@ bool GitWorkspace::openRepository(const QString &path, bool activate, QString *e
     }
     connect(view, &RepositoryView::openFileRequested, this, &GitWorkspace::openFileRequested);
     connect(view, &RepositoryView::openFolderRequested, this, &GitWorkspace::openFolderRequested);
+    connect(view, &RepositoryView::openRepositoryRequested, this, [this](const QString &repoPath) {
+        QString error;
+        if (!openRepository(repoPath, true, &error))
+            QMessageBox::warning(this, tr("Abrir repositorio"),
+                                 tr("%1 no es un repositorio Git.\n\n%2").arg(QDir::toNativeSeparators(repoPath), error));
+    });
     connect(view, &RepositoryView::statusMessage, this, &GitWorkspace::statusMessage);
 
     const QSignalBlocker blocker(m_tabs);

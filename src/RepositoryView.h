@@ -52,6 +52,7 @@ public Q_SLOTS:
 Q_SIGNALS:
     void openFileRequested(const QString &absolutePath);
     void openFolderRequested(const QString &absolutePath);
+    void openRepositoryRequested(const QString &absolutePath);   // p. ej. un submódulo, en otra pestaña
     void statusMessage(const QString &message);
     void commandFinished(bool ok, const QString &output);
 
@@ -114,6 +115,7 @@ private:
     void onLocationDoubleClicked(QTreeWidgetItem *item);
     void showLocationMenu(const QPoint &pos);
     void checkout(const QString &branch);
+    void openSubmodule(const QString &path);
     void renameBranch(const QString &branch);
     void deleteBranch(const QString &branch, const QString &target);
     void scrollToFile(const QString &key);

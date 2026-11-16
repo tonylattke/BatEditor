@@ -40,7 +40,7 @@ public:
         QMap<QString, QList<RefInfo>> remotes;   // remoto → ramas remotas
         QList<RefInfo> tags;
         QList<RefInfo> stashes;
-        QStringList submodules;
+        QStringList submodules;                  // rutas relativas a la raíz del repositorio
         QStringList worktrees;
     };
     struct CommitDetails {

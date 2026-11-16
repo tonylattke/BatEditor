@@ -81,7 +81,7 @@ enum Roles {
     CodeRole,     // Archivos: código de estado
 };
 
-enum RefKind { RefNone, RefBranch, RefRemoteBranch, RefTag, RefStash, RefOther };
+enum RefKind { RefNone, RefBranch, RefRemoteBranch, RefTag, RefStash, RefSubmodule, RefOther };
 
 QString formatDate(const QDateTime &dt)
 {
@@ -539,7 +539,7 @@ void RepositoryView::reloadLocations()
 
     QTreeWidgetItem *subs = group(QStringLiteral("submodules"), tr("Submódulos"), loc.submodules.size());
     for (const QString &s : loc.submodules)
-        child(subs, s, QString(), RefOther);
+        child(subs, s, QString(), RefSubmodule)->setToolTip(0, tr("Doble clic para abrir el submódulo en una pestaña"));
 
     QTreeWidgetItem *wts = group(QStringLiteral("worktrees"), tr("Worktrees"), loc.worktrees.size());
     for (const QString &w : loc.worktrees)
@@ -996,9 +996,31 @@ void RepositoryView::onLocationClicked(QTreeWidgetItem *item)
 
 void RepositoryView::onLocationDoubleClicked(QTreeWidgetItem *item)
 {
-    if (!item || item->data(0, RefKindRole).toInt() != RefBranch)
+    if (!item)
         return;
-    checkout(item->data(0, IdRole).toString());
+    const int kind = item->data(0, RefKindRole).toInt();
+    if (kind == RefBranch)
+        checkout(item->data(0, IdRole).toString());
+    else if (kind == RefSubmodule)
+        openSubmodule(item->data(0, IdRole).toString());
+}
+
+void RepositoryView::openSubmodule(const QString &path)
+{
+    // Sin .git propio, la carpeta pertenece al repositorio padre y abrirla volvería a este
+    const QString dir = absolutePath(path);
+    if (!QFileInfo::exists(QDir(dir).filePath(QStringLiteral(".git")))) {
+        const auto answer = QMessageBox::question(
+            this, tr("Submódulo sin inicializar"),
+            tr("El submódulo «%1» todavía no está descargado.\n\n¿Inicializarlo ahora (git submodule update --init)?")
+                .arg(path));
+        if (answer == QMessageBox::Yes)
+            runGit({QStringLiteral("submodule"), QStringLiteral("update"), QStringLiteral("--init"),
+                    QStringLiteral("--progress"), QStringLiteral("--"), path},
+                   QStringLiteral("git submodule update --init ") + path);
+        return;
+    }
+    Q_EMIT openRepositoryRequested(dir);
 }
 
 void RepositoryView::showLocationMenu(const QPoint &pos)
@@ -1021,6 +1043,10 @@ void RepositoryView::showLocationMenu(const QPoint &pos)
         menu.addAction(tr("Fetch de «%1» con --prune").arg(name), this, [this, name] {
             runGit({QStringLiteral("fetch"), QStringLiteral("--progress"), QStringLiteral("--prune"), name});
         });
+    }
+    if (kind == RefSubmodule) {
+        menu.addAction(tr("Abrir submódulo en una pestaña"), this, [this, name] { openSubmodule(name); });
+        menu.addAction(tr("Abrir en el editor"), this, [this, name] { Q_EMIT openFolderRequested(absolutePath(name)); });
     }
     if (kind == RefBranch) {
         menu.addSeparator();

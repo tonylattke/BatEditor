@@ -443,6 +443,12 @@ EN = {
     'Mover %1 arriba': 'Move %1 up',
     'Mover %1 abajo': 'Move %1 down',
     'Eliminar %1': 'Drop %1',
+    # Submódulos
+    'Doble clic para abrir el submódulo en una pestaña': 'Double-click to open the submodule in a tab',
+    'Abrir submódulo en una pestaña': 'Open Submodule in a Tab',
+    'Submódulo sin inicializar': 'Uninitialized Submodule',
+    'El submódulo «%1» todavía no está descargado.\n\n¿Inicializarlo ahora (git submodule update --init)?':
+        'Submodule "%1" has not been downloaded yet.\n\nInitialize it now (git submodule update --init)?',
     # Menú contextual de ramas
     'Renombrar «%1»…': 'Rename "%1"…',
     'Eliminar «%1»…': 'Delete "%1"…',
