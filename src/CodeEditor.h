@@ -73,11 +73,14 @@ public:
 
 Q_SIGNALS:
     void cursorsChanged();
+    // Ctrl + rueda del ratón: +1 / -1 punto (la ventana cambia la fuente de todas las pestañas)
+    void fontSizeStepRequested(int delta);
 
 protected:
     bool event(QEvent *e) override;
     void keyPressEvent(QKeyEvent *e) override;
     void mousePressEvent(QMouseEvent *e) override;
+    void wheelEvent(QWheelEvent *e) override;
     void paintEvent(QPaintEvent *e) override;
     void resizeEvent(QResizeEvent *e) override;
     void changeEvent(QEvent *e) override;
@@ -117,4 +120,5 @@ private:
     bool m_searchCaseSensitive = false;
     QList<QTextCursor> m_searchMatches;
     QList<QTextCursor> m_persistentHighlights;
+    int m_zoomWheelDelta = 0;   // giro acumulado de Ctrl+rueda (touchpads envían pasos pequeños)
 };

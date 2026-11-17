@@ -7,6 +7,7 @@
 #include <QClipboard>
 #include <QKeyEvent>
 #include <QPainter>
+#include <QWheelEvent>
 #include <QScrollBar>
 #include <QTextBlock>
 
@@ -220,6 +221,26 @@ void CodeEditor::lineNumberAreaPaintEvent(QPaintEvent *event)
 // ---------------------------------------------------------------------------
 // Pintado de cursores adicionales y selecciones
 // ---------------------------------------------------------------------------
+// Ctrl + rueda: cambia el tamaño de la fuente en vez del zoom propio de
+// QPlainTextEdit, para que afecte a todas las pestañas y se guarde
+void CodeEditor::wheelEvent(QWheelEvent *e)
+{
+    if (!(e->modifiers() & Qt::ControlModifier)) {
+        m_zoomWheelDelta = 0;
+        QPlainTextEdit::wheelEvent(e);
+        return;
+    }
+    // Algunos ratones/Windows envían el giro en x cuando se pulsa una tecla modificadora
+    const QPoint angle = e->angleDelta();
+    m_zoomWheelDelta += angle.y() != 0 ? angle.y() : angle.x();
+    while (qAbs(m_zoomWheelDelta) >= QWheelEvent::DefaultDeltasPerStep) {
+        const int step = m_zoomWheelDelta > 0 ? 1 : -1;
+        m_zoomWheelDelta -= step * QWheelEvent::DefaultDeltasPerStep;
+        Q_EMIT fontSizeStepRequested(step);
+    }
+    e->accept();
+}
+
 void CodeEditor::paintEvent(QPaintEvent *e)
 {
     QPlainTextEdit::paintEvent(e);

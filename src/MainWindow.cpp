@@ -664,6 +664,7 @@ CodeEditor *MainWindow::currentEditor() const
 EditorTab *MainWindow::newTab()
 {
     auto *tab = new EditorTab(EditorTab::Kind::File, m_tabs);
+    connect(tab->editor(), &CodeEditor::fontSizeStepRequested, this, &MainWindow::changeFontSize);
     tab->setUntitledIndex(++m_untitledCounter);
     applyEditorSettings(tab);
 
@@ -969,11 +970,16 @@ void MainWindow::goToLine()
 
 void MainWindow::changeFontSize(int delta)
 {
-    m_fontSize = qBound(6, m_fontSize + delta, 48);
+    const int size = qBound(6, m_fontSize + delta, 48);
+    if (size == m_fontSize)
+        return;
+    m_fontSize = size;
     const QFont f = Theme::editorFont(m_fontSize);
     for (int i = 0; i < m_tabs->count(); ++i)
         if (EditorTab *t = tabAt(i))
             t->editor()->setFont(f);
+    QSettings().setValue(QStringLiteral("editor/pointSize"), m_fontSize);   // se recuerda al reiniciar
+    statusBar()->showMessage(tr("Tamaño de fuente: %1 pt").arg(m_fontSize), 1500);
 }
 
 void MainWindow::showShortcuts()
@@ -994,6 +1000,7 @@ void MainWindow::showShortcuts()
 <tr><td><b>Ctrl+Alt+↑ / ↓</b></td><td>Añadir cursor arriba / abajo</td></tr>
 <tr><td><b>Esc</b></td><td>Volver a un solo cursor</td></tr>
 <tr><td><b>Ctrl+/</b></td><td>Comentar / descomentar</td></tr>
+<tr><td><b>Ctrl+rueda del ratón</b></td><td>Aumentar / reducir el tamaño de la fuente</td></tr>
 <tr><td><b>Ctrl+Shift+D</b></td><td>Duplicar líneas</td></tr>
 <tr><td><b>Ctrl+Shift+↑ / ↓</b></td><td>Mover la línea o las líneas seleccionadas arriba / abajo</td></tr>
 <tr><td><b>Tab / Shift+Tab</b></td><td>Sangrar / quitar sangría</td></tr>
@@ -1195,6 +1202,7 @@ EditorTab *MainWindow::resultsTab(bool forceNew)
     if (!forceNew && m_resultsTab)
         return m_resultsTab;
     auto *tab = new EditorTab(EditorTab::Kind::FindResults, m_tabs);
+    connect(tab->editor(), &CodeEditor::fontSizeStepRequested, this, &MainWindow::changeFontSize);
     tab->editor()->setFont(Theme::editorFont(m_fontSize));
     connect(tab, &EditorTab::locationActivated, this, [this, tab](const FindInFiles::Location &loc) {
         m_resultsTab = tab;

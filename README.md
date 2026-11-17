@@ -102,6 +102,8 @@ archivos abiertos.
   `Ctrl`/`Shift`) a otra carpeta del proyecto; si mantienes el ratón sobre una carpeta cerrada,
   se abre. Al soltar, un menú pregunta **Mover aquí**, **Copiar aquí** o **Cancelar**. Las copias
   en la misma carpeta se llaman «nombre - copia»; al mover, las pestañas abiertas siguen al archivo.
+- `Ctrl` + rueda del ratón (o `Ctrl+=` / `Ctrl+-`): cambiar el tamaño de la fuente del editor;
+  se aplica a todas las pestañas y se recuerda al reiniciar.
 - `Ctrl+P`: ir a archivo con búsqueda difusa. `Ctrl+G`: ir a línea.
 - Barra de estado con línea y columna, número de cursores, sangría y lenguaje.
 - Respeta los finales de línea CRLF/LF de cada archivo y guarda de forma atómica.

@@ -573,10 +573,13 @@ EN = {
     'Cambios descartados': 'Changes discarded',
     '%1 cambió fuera del editor; no se recarga porque tiene cambios sin guardar': '%1 changed outside the editor; not reloaded because it has unsaved changes',
     'Recargado %1 (cambió fuera del editor)': 'Reloaded %1 (changed outside the editor)',
+    'Tamaño de fuente: %1 pt': 'Font size: %1 pt',
 }
 
 # Tabla de atajos (HTML): se traduce por frases
 SHORTCUT_PHRASES = [
+    ('Ctrl+rueda del ratón', 'Ctrl+mouse wheel'),
+    ('Aumentar / reducir el tamaño de la fuente', 'Increase / decrease font size'),
     ('Mover la línea o las líneas seleccionadas arriba / abajo', 'Move the line or selected lines up / down'),
     ('Mostrar / ocultar el minimapa (clic: ir a esa línea; arrastrar: desplazar)', 'Show / hide the minimap (click: go to that line; drag: scroll)'),
     ('Clic central en una pestaña', 'Middle-click a tab'),
