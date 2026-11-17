@@ -6,8 +6,10 @@
 #include "LanguageDefinitions.h"
 #include "SyntaxHighlighter.h"
 
+#include <QCryptographicHash>
 #include <QFile>
 #include <QKeyEvent>
+#include <QScrollBar>
 #include <QMouseEvent>
 #include <QTextBlock>
 #include <QFileInfo>
@@ -88,7 +90,7 @@ void EditorTab::applyLanguage()
     }
 }
 
-bool EditorTab::load(const QString &path, QString *error)
+bool EditorTab::readText(const QString &path, QString *text, QByteArray *bytes, QString *error)
 {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
@@ -96,15 +98,32 @@ bool EditorTab::load(const QString &path, QString *error)
             *error = file.errorString();
         return false;
     }
-    const QByteArray bytes = file.readAll();
+    *bytes = file.readAll();
 
     // UTF-8 por defecto; si no es UTF-8 válido, se interpreta como Latin-1
     QStringDecoder decoder(QStringDecoder::Utf8, QStringDecoder::Flag::Stateless);
-    QString text = decoder.decode(bytes);
+    *text = decoder.decode(*bytes);
     if (decoder.hasError())
-        text = QString::fromLatin1(bytes);
-    if (text.startsWith(QChar(0xFEFF)))
-        text.remove(0, 1);
+        *text = QString::fromLatin1(*bytes);
+    if (text->startsWith(QChar(0xFEFF)))
+        text->remove(0, 1);
+    return true;
+}
+
+void EditorTab::rememberDisk(const QByteArray &bytes)
+{
+    const QFileInfo info(m_path);
+    m_diskHash = QCryptographicHash::hash(bytes, QCryptographicHash::Sha1);
+    m_diskSize = info.size();
+    m_diskModified = info.lastModified();
+}
+
+bool EditorTab::load(const QString &path, QString *error)
+{
+    QString text;
+    QByteArray bytes;
+    if (!readText(path, &text, &bytes, error))
+        return false;
 
     m_crlf = text.contains(QLatin1String("\r\n"));
     text.replace(QLatin1String("\r\n"), QLatin1String("\n"));
@@ -113,6 +132,60 @@ bool EditorTab::load(const QString &path, QString *error)
     applyLanguage();
     m_editor->setPlainText(text);
     m_editor->document()->setModified(false);
+    rememberDisk(bytes);
+    Q_EMIT titleChanged();
+    return true;
+}
+
+EditorTab::DiskState EditorTab::diskState() const
+{
+    if (m_kind != Kind::File || m_path.isEmpty() || m_diskHash.isEmpty())
+        return DiskState::Unchanged;
+    const QFileInfo info(m_path);
+    if (!info.exists())
+        return DiskState::Missing;
+    if (info.size() == m_diskSize && info.lastModified() == m_diskModified)
+        return DiskState::Unchanged;
+    QFile file(m_path);
+    if (!file.open(QIODevice::ReadOnly))
+        return DiskState::Unchanged;   // sin permiso o bloqueado: se reintenta en el siguiente aviso
+    return QCryptographicHash::hash(file.readAll(), QCryptographicHash::Sha1) == m_diskHash ? DiskState::Unchanged
+                                                                                          : DiskState::Changed;
+}
+
+bool EditorTab::reloadFromDisk(QString *error)
+{
+    QString text;
+    QByteArray bytes;
+    if (!readText(m_path, &text, &bytes, error))
+        return false;
+    m_crlf = text.contains(QLatin1String("\r\n"));
+    text.replace(QLatin1String("\r\n"), QLatin1String("\n"));
+    rememberDisk(bytes);
+    if (text == m_editor->toPlainText())
+        return true;
+
+    const QTextCursor old = m_editor->textCursor();
+    const int line = old.blockNumber();
+    const int column = old.positionInBlock();
+    const int vscroll = m_editor->verticalScrollBar()->value();
+    const int hscroll = m_editor->horizontalScrollBar()->value();
+
+    // Un único paso de deshacer: Ctrl+Z vuelve a la versión anterior
+    QTextCursor all(m_editor->document());
+    all.beginEditBlock();
+    all.select(QTextCursor::Document);
+    all.insertText(text);
+    all.endEditBlock();
+    m_editor->document()->setModified(false);
+
+    const QTextBlock block = m_editor->document()->findBlockByNumber(
+        qMin(line, m_editor->document()->blockCount() - 1));
+    QTextCursor c(block);
+    c.setPosition(block.position() + qMin(column, block.length() - 1));
+    m_editor->setTextCursor(c);
+    m_editor->verticalScrollBar()->setValue(vscroll);
+    m_editor->horizontalScrollBar()->setValue(hscroll);
     Q_EMIT titleChanged();
     return true;
 }
@@ -134,13 +207,15 @@ bool EditorTab::save(QString *error)
             *error = file.errorString();
         return false;
     }
-    file.write(text.toUtf8());
+    const QByteArray bytes = text.toUtf8();
+    file.write(bytes);
     if (!file.commit()) {
         if (error)
             *error = file.errorString();
         return false;
     }
     m_editor->document()->setModified(false);
+    rememberDisk(bytes);
     Q_EMIT titleChanged();
     return true;
 }

@@ -571,6 +571,8 @@ EN = {
     'Mover también a la papelera los %1 archivo(s) sin seguimiento': 'Also move the %1 untracked file(s) to the trash',
     'Descartar todo': 'Discard All',
     'Cambios descartados': 'Changes discarded',
+    '%1 cambió fuera del editor; no se recarga porque tiene cambios sin guardar': '%1 changed outside the editor; not reloaded because it has unsaved changes',
+    'Recargado %1 (cambió fuera del editor)': 'Reloaded %1 (changed outside the editor)',
 }
 
 # Tabla de atajos (HTML): se traduce por frases

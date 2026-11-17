@@ -44,6 +44,10 @@ archivos abiertos.
 
 - Pestañas que se pueden mover y cerrar, con el indicador ● de cambios sin guardar. Doble clic en
   la barra vacía crea un archivo nuevo.
+- **Recarga automática**: si otro programa (u otro `git checkout`) cambia un archivo abierto y la
+  pestaña no tiene cambios sin guardar, se recarga sola, conservando el cursor y el scroll; `Ctrl+Z`
+  vuelve a la versión anterior. Si la pestaña tiene cambios sin guardar no se toca: solo aparece un
+  aviso en la barra de estado. También se comprueba al volver a la ventana.
 - Resaltado de sintaxis: C/C++, C#, Python, JavaScript/TypeScript, Rust, Go, JSON, CMake,
   Shell, YAML/TOML/INI, SQL, HTML/XML y Markdown.
 - **Cursores múltiples**:

@@ -5,9 +5,12 @@
 
 #include <QMainWindow>
 #include <QPointer>
+#include <QSet>
 
 class CodeEditor;
 class QAction;
+class QFileSystemWatcher;
+class QTimer;
 class EditorTab;
 class FolderProxyModel;
 class FindInFilesPanel;
@@ -65,6 +68,9 @@ private:
     bool saveTab(EditorTab *tab);
     bool saveTabAs(EditorTab *tab);
     void updateTabTitle(EditorTab *tab);
+    // Archivos abiertos modificados fuera del editor: se recargan si la pestaña no tiene cambios
+    void syncWatchedFiles();
+    void checkExternalChanges(const QStringList &paths, bool notifyKept);   // vacío = todas las pestañas
     void updateWindowTitle();
     void updateStatus();
     void quickOpen();
@@ -115,4 +121,8 @@ private:
     FindInFilesPanel *m_findPanel = nullptr;
     QPointer<EditorTab> m_resultsTab;   // la última pestaña de resultados (F4 / Shift+F4)
     int m_resultIndex = -1;
+
+    QFileSystemWatcher *m_fileWatcher = nullptr;
+    QTimer *m_externalTimer = nullptr;   // agrupa los avisos (un guardado puede generar varios)
+    QSet<QString> m_externalPending;
 };

@@ -2,6 +2,7 @@
 
 #include "FindInFiles.h"
 
+#include <QDateTime>
 #include <QWidget>
 
 class CodeEditor;
@@ -30,6 +31,11 @@ public:
     void setFilePath(const QString &path);   // el archivo se renombró/movió fuera del editor
     bool isUntitled() const { return m_path.isEmpty(); }
     bool isModified() const;
+
+    // Cambios hechos fuera del editor
+    enum class DiskState { Unchanged, Changed, Missing };
+    DiskState diskState() const;            // respecto a lo último que se leyó o guardó
+    bool reloadFromDisk(QString *error);    // conserva cursor, scroll y deshacer
     QString displayName() const;
     QString languageName() const;
     void setUntitledIndex(int index) { m_untitledIndex = index; }
@@ -52,6 +58,8 @@ protected:
 
 private:
     void applyLanguage();
+    static bool readText(const QString &path, QString *text, QByteArray *bytes, QString *error);
+    void rememberDisk(const QByteArray &bytes);
 
     Kind m_kind;
     CodeEditor *m_editor;
@@ -62,4 +70,8 @@ private:
     FindInFiles::Document m_results;
     bool m_crlf = false;
     int m_untitledIndex = 1;
+    // Huella de la versión en disco: tamaño y fecha para descartar rápido, hash para confirmar
+    QByteArray m_diskHash;
+    qint64 m_diskSize = -1;
+    QDateTime m_diskModified;
 };

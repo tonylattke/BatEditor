@@ -18,6 +18,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFileSystemModel>
+#include <QFileSystemWatcher>
 #include <QGuiApplication>
 #include <QHeaderView>
 #include <QFile>
@@ -261,8 +262,25 @@ MainWindow::MainWindow(QWidget *parent)
     resize(1400, 860);
     restoreGeometry(settings.value(QStringLiteral("window/geometry")).toByteArray());
 
+    m_fileWatcher = new QFileSystemWatcher(this);
+    m_externalTimer = new QTimer(this);
+    m_externalTimer->setSingleShot(true);
+    m_externalTimer->setInterval(300);
+    connect(m_fileWatcher, &QFileSystemWatcher::fileChanged, this, [this](const QString &path) {
+        m_externalPending.insert(path);
+        m_externalTimer->start();
+    });
+    connect(m_externalTimer, &QTimer::timeout, this, [this] {
+        const QStringList paths(m_externalPending.cbegin(), m_externalPending.cend());
+        m_externalPending.clear();
+        checkExternalChanges(paths, true);
+    });
+
     connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState s) {
-        if (s == Qt::ApplicationActive && m_pages->currentWidget() == m_git)
+        if (s != Qt::ApplicationActive)
+            return;
+        checkExternalChanges({}, false);   // por si el sistema no avisó (unidades de red, etc.)
+        if (m_pages->currentWidget() == m_git)
             m_git->refreshCurrent();
     });
 
@@ -653,6 +671,7 @@ EditorTab *MainWindow::newTab()
         updateTabTitle(tab);
         updateWindowTitle();
         updateStatus();
+        syncWatchedFiles();
     });
     connect(tab->editor(), &CodeEditor::cursorsChanged, this, [this, tab] {
         if (tab == currentTab())
@@ -804,7 +823,62 @@ bool MainWindow::closeTab(int index)
     tab->deleteLater();
     updateWindowTitle();
     updateStatus();
+    syncWatchedFiles();
     return true;
+}
+
+void MainWindow::syncWatchedFiles()
+{
+    QSet<QString> wanted;
+    for (int i = 0; i < m_tabs->count(); ++i)
+        if (EditorTab *t = tabAt(i); t && t->kind() == EditorTab::Kind::File && !t->isUntitled())
+            wanted.insert(t->filePath());
+    const QStringList watched = m_fileWatcher->files();
+    QStringList remove;
+    for (const QString &p : watched)
+        if (!wanted.contains(p))
+            remove << p;
+    if (!remove.isEmpty())
+        m_fileWatcher->removePaths(remove);
+    QStringList add;
+    for (const QString &p : std::as_const(wanted))
+        if (!watched.contains(p) && QFileInfo::exists(p))
+            add << p;
+    if (!add.isEmpty())
+        m_fileWatcher->addPaths(add);
+}
+
+void MainWindow::checkExternalChanges(const QStringList &paths, bool notifyKept)
+{
+    QStringList reloaded, kept;
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        EditorTab *t = tabAt(i);
+        if (!t || t->kind() != EditorTab::Kind::File || t->isUntitled())
+            continue;
+        if (!paths.isEmpty() && !paths.contains(t->filePath()))
+            continue;
+        if (t->diskState() != EditorTab::DiskState::Changed)
+            continue;
+        const QString name = QFileInfo(t->filePath()).fileName();
+        // Con cambios sin guardar no se toca nada, para no perder trabajo
+        if (t->isModified()) {
+            kept << name;
+            continue;
+        }
+        QString error;
+        if (t->reloadFromDisk(&error))
+            reloaded << name;
+    }
+    // Guardar con "renombrar encima" (muchos editores, git) hace que se deje de vigilar el archivo
+    syncWatchedFiles();
+
+    if (!kept.isEmpty() && notifyKept)
+        statusBar()->showMessage(tr("%1 cambió fuera del editor; no se recarga porque tiene cambios sin guardar")
+                                     .arg(kept.join(QStringLiteral(", "))),
+                                 8000);
+    else if (!reloaded.isEmpty())
+        statusBar()->showMessage(tr("Recargado %1 (cambió fuera del editor)").arg(reloaded.join(QStringLiteral(", "))),
+                                 4000);
 }
 
 bool MainWindow::maybeSave(EditorTab *tab)
