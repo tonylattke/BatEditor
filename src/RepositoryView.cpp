@@ -2652,10 +2652,15 @@ void RepositoryView::createBranchAt(const QString &sha)
 {
     bool ok = false;
     const QString name = QInputDialog::getText(this, tr("Crear rama"),
-                                               tr("Nombre de la nueva rama (se crea en el commit %1):").arg(sha.left(7)),
+                                               tr("Nombre de la nueva rama (se crea en el commit %1 y se cambia a ella):")
+                                                   .arg(sha.left(7)),
                                                QLineEdit::Normal, QString(), &ok).trimmed();
-    if (ok && !name.isEmpty())
-        runGit({QStringLiteral("branch"), name, sha}, QStringLiteral("git branch %1 %2").arg(name, sha.left(7)));
+    if (!ok || name.isEmpty())
+        return;
+    const auto mode = askSubmoduleSwitch(name, tr("¿Crear la rama «%1» y cambiar a ella?").arg(name), false);
+    if (mode)
+        switchBranchWithGit({QStringLiteral("switch"), QStringLiteral("-c"), name, sha},
+                            QStringLiteral("git switch -c %1 %2").arg(name, sha.left(7)), name, *mode);
 }
 
 void RepositoryView::createTagAt(const QString &sha)

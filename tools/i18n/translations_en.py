@@ -423,7 +423,8 @@ EN = {
     'Checkout del commit': 'Checkout Commit',
     '¿Cambiar al commit %1?\n\nHEAD quedará desacoplado: los commits nuevos no pertenecerán a ninguna rama hasta que crees una.':
         'Switch to commit %1?\n\nHEAD will be detached: new commits will not belong to any branch until you create one.',
-    'Nombre de la nueva rama (se crea en el commit %1):': 'Name of the new branch (created at commit %1):',
+    'Nombre de la nueva rama (se crea en el commit %1 y se cambia a ella):':
+        'Name of the new branch (created at commit %1, then checked out):',
     'Crear etiqueta': 'Create Tag',
     'Opcional: con mensaje se crea una etiqueta anotada': 'Optional: with a message an annotated tag is created',
     'Nombre de la etiqueta (en el commit %1):': 'Tag name (at commit %1):',
