@@ -481,6 +481,14 @@ void RepositoryView::buildUi()
         if (!key.isEmpty())
             scrollToFile(key);
     });
+    // Con las flechas el detalle sigue al archivo actual (los clics ya los atiende itemClicked)
+    connect(m_files, &QListWidget::currentItemChanged, this, [this](QListWidgetItem *item) {
+        if (!item || !m_files->hasFocus() || QApplication::mouseButtons() != Qt::NoButton)
+            return;
+        const QString key = item->data(KeyRole).toString();
+        if (!key.isEmpty())
+            scrollToFile(key);
+    });
 
     m_middleTabs = new QTabWidget(this);
     m_middleTabs->setDocumentMode(true);
