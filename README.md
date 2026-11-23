@@ -139,6 +139,11 @@ superior con la rama actual, «Abrir en el editor» y «Actualizar» (`F5`), y *
      (su rama o commit actual), y se usa como cualquier otro repositorio. Si aún no está
      descargado, ofrece `git submodule update --init`.
      El cambio es «seguro»: no sobrescribe cambios locales que entren en conflicto.
+   - **Worktrees**: cada uno muestra la carpeta, la rama comprobada y el actual resaltado; iconos
+     si está bloqueado o el directorio no es válido. Doble clic abre ese directorio en otra pestaña Git.
+     Clic derecho en un worktree: abrir (pestaña Git, editor, explorador, terminal), eliminar,
+     bloquear/desbloquear, reparar y podar. Clic derecho en el encabezado **WORKTREES**: añadir
+     worktree (`git worktree add`), podar huérfanos y reparar todos.
    - Se oculta y se muestra con el botón ◧ de la barra.
 2. **Commits / Archivos**
    - *Commits*: historial de todas las ramas (hasta 1000 commits) con el grafo de ramas (un

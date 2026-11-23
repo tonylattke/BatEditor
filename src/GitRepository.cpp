@@ -7,7 +7,9 @@
 #include <QStandardPaths>
 
 #include <git2.h>
+#include <git2/worktree.h>
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -36,6 +38,7 @@ using DiffPtr = GitPtr<git_diff, git_diff_free>;
 using StatusListPtr = GitPtr<git_status_list, git_status_list_free>;
 using SignaturePtr = GitPtr<git_signature, git_signature_free>;
 using RevwalkPtr = GitPtr<git_revwalk, git_revwalk_free>;
+using WorktreePtr = GitPtr<git_worktree, git_worktree_free>;
 
 // libgit2 se inicializa una vez por proceso.
 struct LibGit2Init {
@@ -590,13 +593,82 @@ GitRepository::Locations GitRepository::locations() const
     git_stash_foreach(m_repo, collectStash, &loc.stashes);
     git_submodule_foreach(m_repo, collectSubmodule, &loc.submodules);
 
-    loc.worktrees << gtr("(principal)");
+    const QString here = QDir::cleanPath(m_workdir);
+    QString mainPath = here;
+    if (git_repository_is_worktree(m_repo)) {
+        const QFileInfo cd(QDir::cleanPath(QString::fromUtf8(git_repository_commondir(m_repo))));
+        mainPath = cd.fileName() == QLatin1String(".git") ? cd.dir().absolutePath() : cd.absoluteFilePath();
+    }
+    mainPath = QDir::cleanPath(mainPath);
+
+    auto branchForWorktree = [&](const QString &adminName, bool isMain) -> QString {
+        if (isMain && here != mainPath) {
+            GitRepository main;
+            if (main.open(mainPath))
+                return main.branchName();
+        }
+        git_reference *raw = nullptr;
+        const int rc = isMain ? git_repository_head(&raw, m_repo)
+                                : git_repository_head_for_worktree(&raw, m_repo, adminName.toUtf8().constData());
+        if (rc == GIT_EUNBORNBRANCH || rc == GIT_ENOTFOUND) {
+            git_reference *symRaw = nullptr;
+            if (git_reference_lookup(&symRaw, m_repo, "HEAD") == 0) {
+                ReferencePtr sym(symRaw);
+                QString target = QString::fromUtf8(git_reference_symbolic_target(sym.get()));
+                target.remove(QStringLiteral("refs/heads/"));
+                return target;
+            }
+            return gtr("(sin commits)");
+        }
+        if (rc != 0)
+            return QString();
+        ReferencePtr head(raw);
+        if (isMain)
+            return branchName();
+        if (git_repository_head_detached_for_worktree(m_repo, adminName.toUtf8().constData()) == 1) {
+            char buf[GIT_OID_HEXSZ + 1] = {};
+            git_oid_tostr(buf, 8, git_reference_target(head.get()));
+            return gtr("HEAD desacoplado (%1)").arg(QString::fromLatin1(buf));
+        }
+        return QString::fromUtf8(git_reference_shorthand(head.get()));
+    };
+
+    GitRepository::Locations::WorktreeInfo mainWt;
+    mainWt.isMain = true;
+    mainWt.path = mainPath;
+    mainWt.branch = branchForWorktree(QString(), true);
+    mainWt.isCurrent = here == mainPath;
+    loc.worktrees << mainWt;
+
     git_strarray wts = {nullptr, 0};
     if (git_worktree_list(&wts, m_repo) == 0) {
-        for (size_t i = 0; i < wts.count; ++i)
-            loc.worktrees << QString::fromUtf8(wts.strings[i]);
+        for (size_t i = 0; i < wts.count; ++i) {
+            const QString name = QString::fromUtf8(wts.strings[i]);
+            GitRepository::Locations::WorktreeInfo info;
+            info.name = name;
+            info.isMain = false;
+            git_worktree *wt = nullptr;
+            if (git_worktree_lookup(&wt, m_repo, name.toUtf8().constData()) == 0) {
+                WorktreePtr holder(wt);
+                info.path = QDir::cleanPath(QString::fromUtf8(git_worktree_path(wt)));
+                info.valid = git_worktree_validate(wt) == 0;
+                git_buf reason = GIT_BUF_INIT;
+                const int locked = git_worktree_is_locked(&reason, wt);
+                info.locked = locked > 0;
+                if (locked > 0 && reason.ptr)
+                    info.lockReason = QString::fromUtf8(reason.ptr);
+                git_buf_dispose(&reason);
+                git_worktree_prune_options popts = GIT_WORKTREE_PRUNE_OPTIONS_INIT;
+                info.prunable = git_worktree_is_prunable(wt, &popts) > 0;
+            }
+            info.branch = branchForWorktree(name, false);
+            info.isCurrent = here == info.path;
+            loc.worktrees << info;
+        }
         git_strarray_dispose(&wts);
     }
+    std::sort(loc.worktrees.begin() + 1, loc.worktrees.end(),
+              [](const auto &a, const auto &b) { return a.path.compare(b.path, Qt::CaseInsensitive) < 0; });
     return loc;
 }
 

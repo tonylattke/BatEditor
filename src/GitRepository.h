@@ -42,7 +42,18 @@ public:
         QList<RefInfo> tags;
         QList<RefInfo> stashes;
         QStringList submodules;                  // rutas relativas a la raíz del repositorio
-        QStringList worktrees;
+        struct WorktreeInfo {
+            QString name;        // nombre administrativo libgit2 (vacío en el worktree principal)
+            QString path;        // directorio de trabajo absoluto
+            QString branch;      // rama comprobada (o etiqueta de HEAD desacoplado)
+            bool isMain = false;
+            bool isCurrent = false;   // es el repositorio que estás viendo en esta pestaña
+            bool locked = false;
+            QString lockReason;
+            bool valid = true;        // el directorio de trabajo existe y es coherente
+            bool prunable = false;    // git puede eliminar el enlace administrativo
+        };
+        QList<WorktreeInfo> worktrees;
     };
     struct CommitDetails {
         QString id;

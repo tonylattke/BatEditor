@@ -88,7 +88,8 @@ enum Roles {
     GraphRole,    // Commits: CommitGraph::Row de la fila
 };
 
-enum RefKind { RefNone, RefBranch, RefRemoteBranch, RefTag, RefStash, RefSubmodule, RefFolder, RefOther };
+enum RefKind { RefNone, RefBranch, RefRemoteBranch, RefTag, RefStash, RefSubmodule, RefFolder, RefWorktree,
+               RefOther };
 
 QString formatDate(const QDateTime &dt)
 {
@@ -667,8 +668,36 @@ void RepositoryView::reloadLocations()
         child(subs, s, QString(), RefSubmodule)->setToolTip(0, tr("Doble clic para abrir el submódulo en una pestaña"));
 
     QTreeWidgetItem *wts = group(QStringLiteral("worktrees"), tr("Worktrees"), loc.worktrees.size());
-    for (const QString &w : loc.worktrees)
-        child(wts, w, QString(), RefOther);
+    for (const auto &w : loc.worktrees) {
+        QString label = QFileInfo(w.path).fileName();
+        if (w.isMain)
+            label = tr("%1 (principal)").arg(label.isEmpty() ? QDir(w.path).dirName() : label);
+        if (w.locked)
+            label += QStringLiteral(" \u{1F512}");
+        if (!w.valid)
+            label += QStringLiteral(" \u{26A0}");
+        QTreeWidgetItem *it = child(wts, label, w.path, RefWorktree);
+        it->setData(0, IdRole, w.name);
+        QString tip = w.path;
+        if (!w.branch.isEmpty())
+            tip += QLatin1Char('\n') + w.branch;
+        if (w.locked)
+            tip += QLatin1Char('\n')
+                + (w.lockReason.isEmpty() ? tr("Worktree bloqueado") : tr("Bloqueado: %1").arg(w.lockReason));
+        if (!w.valid)
+            tip += QLatin1Char('\n') + tr("El directorio de trabajo no es válido; «Reparar» o «Poda» puede ayudar.");
+        if (w.prunable)
+            tip += QLatin1Char('\n') + tr("Se puede podar (enlace huérfano en .git).");
+        it->setToolTip(0, tip + QLatin1Char('\n') + tr("Doble clic para abrir en una pestaña Git"));
+        if (!w.branch.isEmpty())
+            it->setText(0, label + QLatin1Char('\n') + w.branch);
+        if (w.isCurrent) {
+            QFont f = it->font(0);
+            f.setBold(true);
+            it->setFont(0, f);
+            it->setForeground(0, Theme::colors().accent);
+        }
+    }
 }
 
 void RepositoryView::reloadCommits()
@@ -1143,6 +1172,8 @@ void RepositoryView::onLocationDoubleClicked(QTreeWidgetItem *item)
         checkoutRemoteBranch(item->data(0, IdRole).toString(), item->data(0, RemoteRole).toString());
     else if (kind == RefSubmodule)
         openSubmodule(item->data(0, IdRole).toString());
+    else if (kind == RefWorktree)
+        openWorktreePath(item->data(0, TargetRole).toString());
 }
 
 // "origin/feature/x": si ya hay una rama local "feature/x" se cambia a ella; si no, se crea
@@ -1166,6 +1197,163 @@ void RepositoryView::checkoutRemoteBranch(const QString &remoteBranch, const QSt
                         QStringLiteral("git switch --track ") + remoteBranch, local, *mode);
 }
 
+namespace {
+
+#ifndef Q_OS_WIN
+QString terminalExecutable()
+{
+    const QString preferred = qEnvironmentVariable("TERMINAL");
+    if (!preferred.isEmpty() && !QStandardPaths::findExecutable(preferred).isEmpty())
+        return preferred;
+    for (const char *t : {"x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "kitty",
+                          "alacritty", "wezterm", "tilix", "xterm"}) {
+        if (!QStandardPaths::findExecutable(QLatin1String(t)).isEmpty())
+            return QLatin1String(t);
+    }
+    return QString();
+}
+#endif
+
+} // namespace
+
+GitRepository::Locations::WorktreeInfo RepositoryView::worktreeFromItem(QTreeWidgetItem *item) const
+{
+    const QString path = QDir::cleanPath(item->data(0, TargetRole).toString());
+    for (const auto &w : m_repo.locations().worktrees)
+        if (QDir::cleanPath(w.path) == path)
+            return w;
+    return {};
+}
+
+void RepositoryView::openWorktreePath(const QString &path)
+{
+    const QString abs = QDir::cleanPath(path);
+    if (abs == QDir::cleanPath(m_repo.workdir()))
+        Q_EMIT statusMessage(tr("Ya estás en este worktree"));
+    else
+        Q_EMIT openRepositoryRequested(abs);
+}
+
+void RepositoryView::openWorktreeTerminal(const QString &path)
+{
+    const QString dir = QDir::cleanPath(path);
+#ifndef Q_OS_WIN
+    const QString terminal = terminalExecutable();
+    if (!terminal.isEmpty()) {
+        if (QProcess::startDetached(terminal, {}, dir))
+            return;
+    }
+    QMessageBox::warning(this, tr("Abrir terminal"), tr("No se encontró ninguna terminal para abrir en «%1».").arg(dir));
+#else
+    QProcess::startDetached(QStringLiteral("cmd.exe"), {QStringLiteral("/k"), QStringLiteral("cd /d"), dir}, dir);
+#endif
+}
+
+void RepositoryView::showWorktreeGroupMenu(const QPoint &pos)
+{
+    QMenu menu(this);
+    QAction *add = menu.addAction(tr("Añadir worktree…"), this, &RepositoryView::addWorktree);
+    add->setEnabled(!isBusy());
+    QAction *prune = menu.addAction(tr("Podar worktrees huérfanos…"), this, &RepositoryView::pruneWorktrees);
+    prune->setEnabled(!isBusy());
+    QAction *repair = menu.addAction(tr("Reparar todos los worktrees"), this, [this] {
+        runGit({QStringLiteral("worktree"), QStringLiteral("repair")}, QStringLiteral("git worktree repair"));
+    });
+    repair->setEnabled(!isBusy());
+    menu.exec(m_locations->viewport()->mapToGlobal(pos));
+}
+
+void RepositoryView::addWorktree()
+{
+    const GitRepository::Locations loc = m_repo.locations();
+    QStringList branches;
+    for (const auto &b : loc.branches)
+        branches << b.name;
+    if (branches.isEmpty()) {
+        QMessageBox::information(this, tr("Añadir worktree"), tr("No hay ramas locales para enlazar."));
+        return;
+    }
+    bool ok = false;
+    const QString branch = QInputDialog::getItem(this, tr("Añadir worktree"), tr("Rama a comprobar:"), branches, 0,
+                                                 false, &ok);
+    if (!ok || branch.isEmpty())
+        return;
+    const QString suggested =
+        QDir(m_repo.workdir()).filePath(QStringLiteral("../") + QFileInfo(m_repo.workdir()).fileName() + QLatin1Char('-')
+                                     + branch.section(QLatin1Char('/'), -1));
+    const QString path = QInputDialog::getText(this, tr("Añadir worktree"),
+                                               tr("Carpeta del nuevo worktree:\n(rama «%1»)").arg(branch),
+                                               QLineEdit::Normal, QDir::cleanPath(suggested), &ok)
+                             .trimmed();
+    if (!ok || path.isEmpty())
+        return;
+    runGit({QStringLiteral("worktree"), QStringLiteral("add"), QDir::cleanPath(path), branch},
+           QStringLiteral("git worktree add ") + path + QLatin1Char(' ') + branch);
+}
+
+void RepositoryView::removeWorktree(const GitRepository::Locations::WorktreeInfo &wt, bool force)
+{
+    if (wt.isMain) {
+        QMessageBox::information(this, tr("Worktree"), tr("No se puede eliminar el worktree principal."));
+        return;
+    }
+    QString question =
+        force ? tr("¿Eliminar el worktree en «%1» a la fuerza (puede perder cambios sin guardar)?").arg(wt.path)
+              : tr("¿Eliminar el worktree en «%1»?").arg(wt.path);
+    if (wt.locked)
+        question += QLatin1Char('\n') + tr("Está bloqueado; quizá necesites «Eliminar a la fuerza».");
+    const auto answer =
+        QMessageBox::warning(this, tr("Eliminar worktree"), question,
+                             force ? QMessageBox::Yes | QMessageBox::Cancel : QMessageBox::Yes | QMessageBox::Cancel,
+                             QMessageBox::Cancel);
+    if (answer != QMessageBox::Yes)
+        return;
+    QStringList args{QStringLiteral("worktree"), QStringLiteral("remove")};
+    if (force)
+        args << QStringLiteral("--force");
+    args << wt.path;
+    runGit(args, QStringLiteral("git worktree remove") + (force ? QStringLiteral(" --force ") : QStringLiteral(" "))
+             + wt.path);
+}
+
+void RepositoryView::lockWorktree(const GitRepository::Locations::WorktreeInfo &wt)
+{
+    bool ok = false;
+    const QString reason = QInputDialog::getText(this, tr("Bloquear worktree"),
+                                                 tr("Motivo del bloqueo (opcional) para «%1»:").arg(wt.path),
+                                                 QLineEdit::Normal, QString(), &ok)
+                               .trimmed();
+    if (!ok)
+        return;
+    QStringList args{QStringLiteral("worktree"), QStringLiteral("lock")};
+    if (!reason.isEmpty())
+        args << QStringLiteral("--reason") << reason;
+    args << wt.path;
+    runGit(args, QStringLiteral("git worktree lock ") + wt.path);
+}
+
+void RepositoryView::unlockWorktree(const GitRepository::Locations::WorktreeInfo &wt)
+{
+    runGit({QStringLiteral("worktree"), QStringLiteral("unlock"), wt.path},
+           QStringLiteral("git worktree unlock ") + wt.path);
+}
+
+void RepositoryView::pruneWorktrees()
+{
+    const auto answer = QMessageBox::question(
+        this, tr("Podar worktrees"),
+        tr("¿Eliminar de .git los enlaces de worktrees cuyo directorio ya no existe en disco?"));
+    if (answer != QMessageBox::Yes)
+        return;
+    runGit({QStringLiteral("worktree"), QStringLiteral("prune")}, QStringLiteral("git worktree prune"));
+}
+
+void RepositoryView::repairWorktree(const QString &path)
+{
+    runGit({QStringLiteral("worktree"), QStringLiteral("repair"), QDir::cleanPath(path)},
+           QStringLiteral("git worktree repair ") + path);
+}
+
 void RepositoryView::openSubmodule(const QString &path)
 {
     // Sin .git propio, la carpeta pertenece al repositorio padre y abrirla volvería a este
@@ -1187,8 +1375,13 @@ void RepositoryView::openSubmodule(const QString &path)
 void RepositoryView::showLocationMenu(const QPoint &pos)
 {
     QTreeWidgetItem *item = m_locations->itemAt(pos);
-    if (!item || !item->parent())
+    if (!item)
         return;
+    if (!item->parent()) {
+        if (item->data(0, IdRole).toString() == QLatin1String("worktrees"))
+            showWorktreeGroupMenu(pos);
+        return;
+    }
     const int kind = item->data(0, RefKindRole).toInt();
     const QString name = item->data(0, IdRole).toString();
     const QString target = item->data(0, TargetRole).toString();
@@ -1214,6 +1407,40 @@ void RepositoryView::showLocationMenu(const QPoint &pos)
     if (kind == RefSubmodule) {
         menu.addAction(tr("Abrir submódulo en una pestaña"), this, [this, name] { openSubmodule(name); });
         menu.addAction(tr("Abrir en el editor"), this, [this, name] { Q_EMIT openFolderRequested(absolutePath(name)); });
+    }
+    if (kind == RefWorktree) {
+        const GitRepository::Locations::WorktreeInfo wt = worktreeFromItem(item);
+        const QString path = wt.path.isEmpty() ? target : wt.path;
+        const bool here = QDir::cleanPath(path) == QDir::cleanPath(m_repo.workdir());
+        const bool busy = isBusy();
+        if (!here)
+            menu.addAction(tr("Abrir en una pestaña Git"), this, [this, path] { openWorktreePath(path); });
+        menu.addAction(tr("Abrir en el editor"), this, [this, path] { Q_EMIT openFolderRequested(path); });
+        menu.addAction(tr("Abrir en el explorador"), this, [path] {
+            QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+        });
+        menu.addAction(tr("Abrir terminal aquí"), this, [this, path] { openWorktreeTerminal(path); });
+        menu.addSeparator();
+        if (!wt.isMain) {
+            QAction *remove = menu.addAction(tr("Eliminar worktree…"), this, [this, wt] { removeWorktree(wt, false); });
+            remove->setEnabled(!busy);
+            QAction *force = menu.addAction(tr("Eliminar worktree a la fuerza…"),
+                                          this, [this, wt] { removeWorktree(wt, true); });
+            force->setEnabled(!busy);
+            if (wt.locked)
+                menu.addAction(tr("Desbloquear worktree"), this, [this, wt] { unlockWorktree(wt); })->setEnabled(!busy);
+            else
+                menu.addAction(tr("Bloquear worktree…"), this, [this, wt] { lockWorktree(wt); })->setEnabled(!busy);
+            if (!wt.valid || wt.prunable) {
+                menu.addAction(tr("Reparar worktree"), this, [this, path] { repairWorktree(path); })->setEnabled(!busy);
+                if (wt.prunable)
+                    menu.addAction(tr("Podar enlace administrativo"), this, [this, wt] {
+                        runGit({QStringLiteral("worktree"), QStringLiteral("prune")},
+                               QStringLiteral("git worktree prune"));
+                    })->setEnabled(!busy);
+            }
+        }
+        menu.addAction(tr("Copiar ruta"), this, [path] { QApplication::clipboard()->setText(path); });
     }
     if (kind == RefBranch) {
         menu.addSeparator();

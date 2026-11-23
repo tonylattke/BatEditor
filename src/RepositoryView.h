@@ -139,6 +139,16 @@ private:
     void checkout(const QString &branch);
     void checkoutRemoteBranch(const QString &remoteBranch, const QString &remote);
     void openSubmodule(const QString &path);
+    void showWorktreeGroupMenu(const QPoint &pos);
+    GitRepository::Locations::WorktreeInfo worktreeFromItem(QTreeWidgetItem *item) const;
+    void openWorktreePath(const QString &path);
+    void addWorktree();
+    void removeWorktree(const GitRepository::Locations::WorktreeInfo &wt, bool force);
+    void lockWorktree(const GitRepository::Locations::WorktreeInfo &wt);
+    void unlockWorktree(const GitRepository::Locations::WorktreeInfo &wt);
+    void pruneWorktrees();
+    void repairWorktree(const QString &path);
+    void openWorktreeTerminal(const QString &path);
     void renameBranch(const QString &branch);
     void deleteBranch(const QString &branch, const QString &target);
     void scrollToFile(const QString &key);
