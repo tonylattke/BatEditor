@@ -335,6 +335,8 @@ void apply(QApplication &app)
             padding: 4px 10px; color: %5; }
         QPushButton:hover, QToolButton:hover, QPushButton:focus { border-color: %6; }
         QPushButton:pressed, QToolButton:checked { background: %7; }
+        QToolButton#previewToggle { background: %2; border: 1px solid %1; border-radius: 4px; padding: 3px 10px; color: %3; }
+        QToolButton#previewToggle:hover { border-color: %6; color: %5; }
         QPushButton#primary { background: %6; color: #1a1c22; font-weight: bold; border: none; }
         QPushButton#primary:disabled { background: %1; color: %3; }
         QStatusBar { background: %2; color: %3; }

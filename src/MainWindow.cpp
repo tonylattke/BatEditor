@@ -48,6 +48,7 @@
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTextBlock>
+#include <QTextEdit>
 #include <QToolButton>
 #include <QTreeView>
 #include <QVBoxLayout>
@@ -463,11 +464,20 @@ void MainWindow::createMenus()
                 fn(e);
         };
     };
-    // Las vistas de solo lectura (diff, blame) no reclaman Ctrl+C / Ctrl+A, así que llegan aquí
-    auto onGitText = [](auto fn) {
-        return [fn] {
-            if (auto *text = qobject_cast<QPlainTextEdit *>(QApplication::focusWidget()))
-                fn(text);
+    // Las vistas de solo lectura (diff, blame, vista previa) no reclaman Ctrl+C / Ctrl+A, así que
+    // llegan aquí: se aplican a la que tiene el foco. Devuelve false si el foco no está en una.
+    auto onReadOnlyView = [this](auto fn) {
+        return [this, fn] {
+            QWidget *focus = QApplication::focusWidget();
+            if (auto *t = qobject_cast<QPlainTextEdit *>(focus); t && t->isReadOnly() && t != currentEditor()) {
+                fn(t);
+                return true;
+            }
+            if (auto *t = qobject_cast<QTextEdit *>(focus); t && t->isReadOnly()) {
+                fn(t);
+                return true;
+            }
+            return false;
         };
     };
 
@@ -524,9 +534,10 @@ void MainWindow::createMenus()
     edit->addSeparator();
     addMenuAction(edit, tr("Cortar"), QKeySequence::Cut, this, onEditor([](CodeEditor *e) { e->cutAll(); }));
     addMenuAction(edit, tr("Copiar"), QKeySequence::Copy, this,
-                  [this, editor = onEditor([](CodeEditor *e) { e->copyAll(); }),
-                   git = onGitText([](QPlainTextEdit *t) { t->copy(); })] {
-                      m_pages->currentWidget() == m_git ? git() : editor();
+                  [editor = onEditor([](CodeEditor *e) { e->copyAll(); }),
+                   view = onReadOnlyView([](auto *t) { t->copy(); })] {
+                      if (!view())
+                          editor();
                   });
     addMenuAction(edit, tr("Pegar"), QKeySequence::Paste, this, onEditor([](CodeEditor *e) { e->pasteAll(); }));
     edit->addSeparator();
@@ -542,12 +553,13 @@ void MainWindow::createMenus()
     // --- Selección ----------------------------------------------------------
     QMenu *sel = menuBar()->addMenu(tr("&Selección"));
     addMenuAction(sel, tr("Seleccionar todo"), QKeySequence::SelectAll, this,
-                  [this, editor = onEditor([](CodeEditor *e) {
+                  [editor = onEditor([](CodeEditor *e) {
                        e->clearExtraCursors();
                        e->selectAll();
                    }),
-                   git = onGitText([](QPlainTextEdit *t) { t->selectAll(); })] {
-                      m_pages->currentWidget() == m_git ? git() : editor();
+                   view = onReadOnlyView([](auto *t) { t->selectAll(); })] {
+                      if (!view())
+                          editor();
                   });
     sel->addSeparator();
     addMenuAction(sel, tr("Añadir siguiente coincidencia"), QKeySequence(Qt::CTRL | Qt::Key_D), this,
@@ -566,12 +578,16 @@ void MainWindow::createMenus()
     // --- Buscar -------------------------------------------------------------
     QMenu *find = menuBar()->addMenu(tr("&Buscar"));
     addMenuAction(find, tr("Buscar…"), QKeySequence::Find, this, [this] {
-        if (EditorTab *t = currentTab())
+        if (EditorTab *t = currentTab()) {
+            t->setPreviewing(false);   // se busca en el texto del archivo
             t->findBar()->showFind(false);
+        }
     });
     addMenuAction(find, tr("Reemplazar…"), QKeySequence(Qt::CTRL | Qt::Key_H), this, [this] {
-        if (EditorTab *t = currentTab())
+        if (EditorTab *t = currentTab()) {
+            t->setPreviewing(false);
             t->findBar()->showFind(true);
+        }
     });
     addMenuAction(find, tr("Buscar siguiente"), QKeySequence(Qt::Key_F3), this,
                     onEditor([](CodeEditor *e) { e->findNext(false); }));

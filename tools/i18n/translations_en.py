@@ -559,6 +559,16 @@ EN = {
     'Copiar sin marcas de diff': 'Copy Without Diff Markers',
     'Lenguaje del resaltado de sintaxis': 'Syntax highlighting language',
     'Detectar automáticamente': 'Auto-detect',
+    'Original': 'Original',
+    '{ } Pretty': '{ } Pretty',
+    'Volver al archivo tal como está': 'Back to the file as it is',
+    'Ver el JSON formateado (no modifica el archivo)': 'View the formatted JSON (does not modify the file)',
+    'Código': 'Code',
+    'Vista previa': 'Preview',
+    'Volver al texto Markdown': 'Back to the Markdown text',
+    'Ver el Markdown renderizado': 'View the rendered Markdown',
+    'línea %1, columna %2': 'line %1, column %2',
+    '// JSON no válido (%1): %2\n': '// Invalid JSON (%1): %2\n',
     'Este repositorio tiene %1 submódulo(s).\n\n'
     '• Cambiar también los submódulos: los que tienen una rama «%2» cambian a ella (%3); el resto se queda como está.\n\n'
     '• Solo el proyecto: los submódulos se ponen en el commit que registra «%2» (git submodule update).':

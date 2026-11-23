@@ -7,7 +7,11 @@
 
 class CodeEditor;
 class FindBar;
+class QStackedWidget;
 class QSyntaxHighlighter;
+class QTextBrowser;
+class QTimer;
+class QToolButton;
 class SyntaxHighlighter;
 
 // Una pestaña del área central: un archivo (o una vista de diff) + su barra de búsqueda.
@@ -41,6 +45,11 @@ public:
     // Lenguaje elegido a mano (barra de estado); vacío = según el nombre del archivo
     void setLanguageOverride(const QString &name);
     QString languageOverride() const { return m_languageOverride; }
+
+    // Vista de solo lectura sobre el archivo: JSON formateado o Markdown renderizado.
+    // Se alterna con el botón flotante de la esquina superior derecha; el archivo no cambia.
+    bool isPreviewing() const { return m_previewing; }
+    void setPreviewing(bool previewing);
     void setUntitledIndex(int index) { m_untitledIndex = index; }
 
     // Diff
@@ -58,8 +67,14 @@ Q_SIGNALS:
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private:
+    enum class PreviewKind { None, Json, Markdown };
+    PreviewKind previewKind() const;
+    void updatePreviewButton();
+    void positionPreviewButton();
+    void refreshPreview();
     void applyLanguage(const QString &firstLine);   // la primera línea sirve para el shebang
     void applyLanguage();
     static bool readText(const QString &path, QString *text, QByteArray *bytes, QString *error);
@@ -72,6 +87,12 @@ private:
     QString m_path;
     QString m_diffTitle;
     QString m_languageOverride;
+    QStackedWidget *m_pages = nullptr;
+    QToolButton *m_previewButton = nullptr;
+    CodeEditor *m_jsonView = nullptr;        // se crean al usarse por primera vez
+    QTextBrowser *m_markdownView = nullptr;
+    QTimer *m_previewTimer = nullptr;        // agrupa los cambios mientras se previsualiza
+    bool m_previewing = false;
     FindInFiles::Document m_results;
     bool m_crlf = false;
     int m_untitledIndex = 1;
