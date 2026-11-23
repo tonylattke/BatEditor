@@ -2,11 +2,19 @@
 
 #include <QApplication>
 #include <QFontDatabase>
+#include <QGridLayout>
+#include <QLabel>
 #include <QMenu>
+#include <QMessageBox>
 #include <QPalette>
 #include <QPointer>
+#include <QPushButton>
+#include <QScreen>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QStyleFactory>
 #include <QMouseEvent>
+#include <QTimer>
 #include <QTabBar>
 #include <QTabWidget>
 
@@ -49,6 +57,98 @@ protected:
 private:
     QTabWidget *m_tabs;
     int m_pressed = -1;
+};
+
+// Ajusta cada QMessageBox justo antes de mostrarse:
+//  - el botón de confirmar queda por defecto y con el foco, para aceptar con Enter
+//    (si el código eligió ya otro botón de confirmar, se respeta);
+//  - un texto más alto que media pantalla pasa a un panel con scroll, para que los
+//    botones sigan visibles.
+class MessageBoxPolisher : public QObject
+{
+public:
+    using QObject::QObject;
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() == QEvent::Show) {
+            auto *box = qobject_cast<QMessageBox *>(watched);
+            if (box && !box->property("batcodePolished").toBool()) {
+                box->setProperty("batcodePolished", true);
+                limitTextHeight(box, QStringLiteral("qt_msgbox_label"));
+                limitTextHeight(box, QStringLiteral("qt_msgbox_informativelabel"));
+                focusConfirmButton(box);
+            }
+        }
+        return false;
+    }
+
+private:
+    static bool isConfirmRole(QMessageBox::ButtonRole role)
+    {
+        return role == QMessageBox::AcceptRole || role == QMessageBox::YesRole || role == QMessageBox::DestructiveRole;
+    }
+
+    static void focusConfirmButton(QMessageBox *box)
+    {
+        QPushButton *button = box->defaultButton();
+        if (!button || !isConfirmRole(box->buttonRole(button))) {
+            button = nullptr;
+            for (QMessageBox::ButtonRole role : {QMessageBox::AcceptRole, QMessageBox::YesRole, QMessageBox::DestructiveRole}) {
+                for (QAbstractButton *b : box->buttons())
+                    if (box->buttonRole(b) == role && !button)
+                        button = qobject_cast<QPushButton *>(b);
+            }
+        }
+        if (!button)
+            return;
+        box->setDefaultButton(button);
+        // QDialog reparte el foco al terminar de mostrarse: se vuelve a pedir después
+        QTimer::singleShot(0, button, [button] { button->setFocus(Qt::OtherFocusReason); });
+    }
+
+    // QMessageBox calcula su tamaño fijo a partir de su propia etiqueta, así que no se
+    // mueve: se oculta y se pone una copia dentro de un QScrollArea con tamaño mínimo explícito.
+    static void limitTextHeight(QMessageBox *box, const QString &labelName)
+    {
+        auto *label = box->findChild<QLabel *>(labelName, Qt::FindDirectChildrenOnly);
+        auto *grid = qobject_cast<QGridLayout *>(box->layout());
+        if (!label || !grid || label->isHidden() || label->text().isEmpty())
+            return;
+        const int index = grid->indexOf(label);
+        if (index < 0)
+            return;
+        const QRect screen = box->screen()->availableGeometry();
+        const int maxHeight = screen.height() / 2;
+
+        auto *copy = new QLabel;
+        copy->setTextFormat(label->textFormat());
+        copy->setText(label->text());
+        copy->setTextInteractionFlags(label->textInteractionFlags());
+        copy->setOpenExternalLinks(label->openExternalLinks());
+        copy->setContentsMargins(label->contentsMargins());
+        const int naturalWidth = copy->sizeHint().width();
+        copy->setWordWrap(true);
+        const int width = qBound(360, naturalWidth, qMin(700, screen.width() / 2));
+        const int height = copy->heightForWidth(width);
+        if (height <= maxHeight) {
+            delete copy;
+            return;
+        }
+
+        auto *scroll = new QScrollArea(box);
+        scroll->setFrameShape(QFrame::NoFrame);
+        scroll->setWidgetResizable(true);
+        scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        scroll->setWidget(copy);
+        scroll->setMinimumSize(width + scroll->verticalScrollBar()->sizeHint().width(), maxHeight);
+        int row, column, rowSpan, columnSpan;
+        grid->getItemPosition(index, &row, &column, &rowSpan, &columnSpan);
+        label->hide();
+        grid->addWidget(scroll, row, column, rowSpan, columnSpan);
+        scroll->show();
+    }
 };
 } // namespace
 
@@ -146,6 +246,7 @@ QFont uiFont()
 void apply(QApplication &app)
 {
     const Colors &c = colors();
+    app.installEventFilter(new MessageBoxPolisher(&app));
     app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
     app.setFont(uiFont());
 
@@ -186,7 +287,7 @@ void apply(QApplication &app)
         QLineEdit:focus, QPlainTextEdit#commitMessage:focus { border: 1px solid %6; }
         QPushButton, QToolButton { background: %8; border: 1px solid %1; border-radius: 3px;
             padding: 4px 10px; color: %5; }
-        QPushButton:hover, QToolButton:hover { border-color: %6; }
+        QPushButton:hover, QToolButton:hover, QPushButton:focus { border-color: %6; }
         QPushButton:pressed, QToolButton:checked { background: %7; }
         QPushButton#primary { background: %6; color: #1a1c22; font-weight: bold; border: none; }
         QPushButton#primary:disabled { background: %1; color: %3; }
