@@ -5,12 +5,14 @@
 #include "FindBar.h"
 #include "FindInFilesPanel.h"
 #include "GitWorkspace.h"
+#include "LanguageDefinitions.h"
 #include "PreferencesDialog.h"
 #include "QuickOpenDialog.h"
 #include "RepositoryView.h"
 #include "Theme.h"
 
 #include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QClipboard>
 #include <QCloseEvent>
@@ -46,6 +48,7 @@
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTextBlock>
+#include <QToolButton>
 #include <QTreeView>
 #include <QVBoxLayout>
 
@@ -246,10 +249,14 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_positionLabel = new QLabel(this);
     m_indentLabel = new QLabel(this);
-    m_languageLabel = new QLabel(this);
+    m_languageButton = new QToolButton(this);
+    m_languageButton->setObjectName(QStringLiteral("languageButton"));
+    m_languageButton->setAutoRaise(true);
+    m_languageButton->setToolTip(tr("Lenguaje del resaltado de sintaxis"));
+    connect(m_languageButton, &QToolButton::clicked, this, &MainWindow::showLanguageMenu);
     statusBar()->addWidget(m_positionLabel);
     statusBar()->addPermanentWidget(m_indentLabel);
-    statusBar()->addPermanentWidget(m_languageLabel);
+    statusBar()->addPermanentWidget(m_languageButton);
     statusBar()->setSizeGripEnabled(false);
 
     // Interruptor de modo en la esquina superior derecha de la barra de menús
@@ -769,7 +776,7 @@ void MainWindow::updateStatus()
     if (!e) {
         m_positionLabel->clear();
         m_indentLabel->clear();
-        m_languageLabel->clear();
+        m_languageButton->hide();
         return;
     }
     const QTextCursor c = e->textCursor();
@@ -782,7 +789,41 @@ void MainWindow::updateStatus()
     }
     m_positionLabel->setText(pos);
     m_indentLabel->setText(tr("Espacios: %1").arg(e->indentWidth()));
-    m_languageLabel->setText(currentTab()->languageName());
+    EditorTab *tab = currentTab();
+    m_languageButton->setText(tab->languageName());
+    m_languageButton->setEnabled(tab->kind() == EditorTab::Kind::File);
+    m_languageButton->show();
+}
+
+void MainWindow::showLanguageMenu()
+{
+    EditorTab *tab = currentTab();
+    if (!tab || tab->kind() != EditorTab::Kind::File)
+        return;
+    QMenu menu(this);
+    auto *group = new QActionGroup(&menu);
+    auto add = [&](const QString &text, const QString &name, bool checked) {
+        QAction *a = menu.addAction(text, this, [this, tab = QPointer<EditorTab>(tab), name] {
+            if (!tab)
+                return;
+            tab->setLanguageOverride(name);
+            updateStatus();
+        });
+        a->setCheckable(true);
+        a->setChecked(checked);
+        group->addAction(a);
+    };
+    const QString override = tab->languageOverride();
+    add(tr("Detectar automáticamente"), QString(), override.isEmpty());
+    menu.addSeparator();
+    add(Languages::plainText().name, Languages::plainText().name, override == Languages::plainText().name);
+    QStringList names;
+    for (const LanguageDefinition &d : Languages::all())
+        names << d.name;
+    names.sort(Qt::CaseInsensitive);
+    for (const QString &name : std::as_const(names))
+        add(name, name, override == name);
+    menu.exec(m_languageButton->mapToGlobal(QPoint(0, 0)) - QPoint(0, menu.sizeHint().height()));
 }
 
 bool MainWindow::openFile(const QString &path)

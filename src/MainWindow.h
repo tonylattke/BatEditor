@@ -20,6 +20,7 @@ class QLabel;
 class QSplitter;
 class QStackedWidget;
 class QTabWidget;
+class QToolButton;
 class QTreeView;
 
 // Ventana principal con dos modos, conmutables con el interruptor de la esquina:
@@ -73,6 +74,7 @@ private:
     void checkExternalChanges(const QStringList &paths, bool notifyKept);   // vacío = todas las pestañas
     void updateWindowTitle();
     void updateStatus();
+    void showLanguageMenu();
     void quickOpen();
     void goToLine();
     void changeFontSize(int delta);
@@ -103,7 +105,7 @@ private:
     QTabWidget *m_tabs = nullptr;
     QLabel *m_positionLabel = nullptr;
     QLabel *m_indentLabel = nullptr;
-    QLabel *m_languageLabel = nullptr;
+    QToolButton *m_languageButton = nullptr;   // clic: elegir el lenguaje del resaltado
 
     // Modo Git
     GitWorkspace *m_git = nullptr;

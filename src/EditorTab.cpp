@@ -81,11 +81,26 @@ void EditorTab::setFilePath(const QString &path)
     Q_EMIT titleChanged();
 }
 
+void EditorTab::setLanguageOverride(const QString &name)
+{
+    if (name == m_languageOverride)
+        return;
+    m_languageOverride = name;
+    applyLanguage();
+}
+
 void EditorTab::applyLanguage()
 {
+    applyLanguage(m_editor->document()->firstBlock().text());
+}
+
+void EditorTab::applyLanguage(const QString &firstLine)
+{
     if (auto *sh = qobject_cast<SyntaxHighlighter *>(m_highlighter)) {
-        const LanguageDefinition &lang = Languages::forFile(m_path);
-        sh->setLanguage(lang);
+        const LanguageDefinition &lang = m_languageOverride.isEmpty() ? Languages::forFile(m_path, firstLine)
+                                                                      : Languages::byName(m_languageOverride);
+        if (lang.name != sh->language().name)
+            sh->setLanguage(lang);
         m_editor->setLineCommentToken(lang.lineComment.isEmpty() ? QStringLiteral("#") : lang.lineComment);
     }
 }
@@ -129,7 +144,7 @@ bool EditorTab::load(const QString &path, QString *error)
     text.replace(QLatin1String("\r\n"), QLatin1String("\n"));
 
     m_path = QFileInfo(path).absoluteFilePath();
-    applyLanguage();
+    applyLanguage(text.left(text.indexOf(QLatin1Char('\n'))));
     m_editor->setPlainText(text);
     m_editor->document()->setModified(false);
     rememberDisk(bytes);

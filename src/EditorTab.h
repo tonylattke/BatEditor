@@ -38,6 +38,9 @@ public:
     bool reloadFromDisk(QString *error);    // conserva cursor, scroll y deshacer
     QString displayName() const;
     QString languageName() const;
+    // Lenguaje elegido a mano (barra de estado); vacío = según el nombre del archivo
+    void setLanguageOverride(const QString &name);
+    QString languageOverride() const { return m_languageOverride; }
     void setUntitledIndex(int index) { m_untitledIndex = index; }
 
     // Diff
@@ -57,6 +60,7 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
+    void applyLanguage(const QString &firstLine);   // la primera línea sirve para el shebang
     void applyLanguage();
     static bool readText(const QString &path, QString *text, QByteArray *bytes, QString *error);
     void rememberDisk(const QByteArray &bytes);
@@ -67,6 +71,7 @@ private:
     QSyntaxHighlighter *m_highlighter = nullptr;
     QString m_path;
     QString m_diffTitle;
+    QString m_languageOverride;
     FindInFiles::Document m_results;
     bool m_crlf = false;
     int m_untitledIndex = 1;

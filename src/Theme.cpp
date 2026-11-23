@@ -339,6 +339,8 @@ void apply(QApplication &app)
         QPushButton#primary:disabled { background: %1; color: %3; }
         QStatusBar { background: %2; color: %3; }
         QStatusBar QLabel { color: %3; padding: 0px 6px; }
+        QStatusBar QToolButton#languageButton { background: transparent; border: none; color: %3; padding: 0px 6px; }
+        QStatusBar QToolButton#languageButton:hover { color: %5; }
         QMenuBar { background: %2; color: %5; }
         QMenuBar::item:selected { background: %7; }
         QMenu { background: %8; color: %5; border: 1px solid %1; }

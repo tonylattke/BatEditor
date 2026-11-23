@@ -2,6 +2,8 @@
 
 #include "Theme.h"
 
+#include <QRegularExpression>
+
 namespace {
 
 bool isWordChar(QChar c)
@@ -27,6 +29,8 @@ SyntaxHighlighter::SyntaxHighlighter(QTextDocument *document)
     m_preprocFmt.setForeground(c.preproc);
     m_headingFmt.setForeground(c.keyword);
     m_headingFmt.setFontWeight(QFont::Bold);
+    m_keyFmt.setForeground(c.function);
+    m_variableFmt.setForeground(c.type);
 }
 
 QString SyntaxHighlighter::normalize(const QString &word) const
@@ -49,6 +53,60 @@ void SyntaxHighlighter::setLanguage(const LanguageDefinition &language)
     rehighlight();
 }
 
+int SyntaxHighlighter::variableLength(const QString &text, int i) const
+{
+    const int len = text.length();
+    if (m_lang.variablePrefixes.isEmpty() || !m_lang.variablePrefixes.contains(text.at(i)) || i + 1 >= len)
+        return 0;
+    const QChar next = text.at(i + 1);
+    if (next == QLatin1Char('{') || next == QLatin1Char('(')) {   // ${VAR} / $(VAR) en Makefile
+        const QChar close = next == QLatin1Char('{') ? QLatin1Char('}') : QLatin1Char(')');
+        const int end = text.indexOf(close, i + 2);
+        return end < 0 ? len - i : end - i + 1;
+    }
+    if (next.isLetter() || next == QLatin1Char('_')) {
+        int j = i + 2;
+        while (j < len && isWordChar(text.at(j)))
+            ++j;
+        return j - i;
+    }
+    if (next.isDigit() || QStringView(u"#?@*!$-").contains(next))   // $1, $#, $?...
+        return 2;
+    return 0;
+}
+
+void SyntaxHighlighter::highlightVariables(const QString &text, int from, int to)
+{
+    for (int k = from; k < to; ++k) {
+        if (text.at(k) == QLatin1Char('\\')) {
+            ++k;
+            continue;
+        }
+        if (const int n = variableLength(text, k); n > 0) {
+            setFormat(k, qMin(n, to - k), m_variableFmt);
+            k += n - 1;
+        }
+    }
+}
+
+bool SyntaxHighlighter::lineCommentAt(const QString &text, int i, int firstNonSpace) const
+{
+    const QStringView rest = QStringView(text).mid(i);
+    if (!m_lang.lineComment.isEmpty() && rest.startsWith(m_lang.lineComment))
+        return true;
+    for (const QString &token : m_lang.extraLineComments) {
+        if (!rest.startsWith(token, m_lang.caseInsensitiveKeywords ? Qt::CaseInsensitive : Qt::CaseSensitive))
+            continue;
+        // "REM" solo como palabra al principio de la línea; ";" o "#" en cualquier sitio
+        if (!token.back().isLetter())
+            return true;
+        const int after = i + int(token.size());
+        if (i == firstNonSpace && (after >= text.length() || !isWordChar(text.at(after))))
+            return true;
+    }
+    return false;
+}
+
 void SyntaxHighlighter::highlightBlock(const QString &text)
 {
     const int len = text.length();
@@ -66,14 +124,15 @@ void SyntaxHighlighter::highlightBlock(const QString &text)
         }
         i = end + m_lang.blockCommentEnd.length();
         setFormat(0, i, m_commentFmt);
-    } else if (prev == InTripleString && !m_lang.tripleQuote.isEmpty()) {
-        const int end = text.indexOf(m_lang.tripleQuote);
+    } else if (prev >= InTripleString && prev - InTripleString < m_lang.tripleQuotes.size()) {
+        const QString &quote = m_lang.tripleQuotes.at(prev - InTripleString);
+        const int end = text.indexOf(quote);
         if (end < 0) {
             setFormat(0, len, m_stringFmt);
-            setCurrentBlockState(InTripleString);
+            setCurrentBlockState(prev);
             return;
         }
-        i = end + m_lang.tripleQuote.length();
+        i = end + quote.length();
         setFormat(0, i, m_stringFmt);
     }
 
@@ -87,6 +146,24 @@ void SyntaxHighlighter::highlightBlock(const QString &text)
     int firstNonSpace = 0;
     while (firstNonSpace < len && text.at(firstNonSpace).isSpace())
         ++firstNonSpace;
+
+    if (i == 0 && m_lang.sectionHeaders && firstNonSpace < len && text.at(firstNonSpace) == QLatin1Char('[')) {
+        const int close = text.lastIndexOf(QLatin1Char(']'));
+        if (close > firstNonSpace) {
+            setFormat(firstNonSpace, close - firstNonSpace + 1, m_headingFmt);
+            i = close + 1;
+        }
+    }
+    // Clave sin comillas al principio de la línea: "name:", "- name:", "key =", "color:", "CC :="
+    if (i == 0 && m_lang.keyValue) {
+        static const QRegularExpression key(
+            QStringLiteral(R"(^\s*(?:-\s+)?([A-Za-z_$\-][\w$.\-/ ]*?)\s*(?::(?=\s|$)|[:?+]?=))"));
+        const QRegularExpressionMatch m = key.match(text);
+        if (m.hasMatch() && !lineCommentAt(text, m.capturedStart(1), firstNonSpace)) {
+            setFormat(m.capturedStart(1), m.capturedLength(1), m_keyFmt);
+            i = m.capturedEnd(1);
+        }
+    }
 
     while (i < len) {
         const QChar ch = text.at(i);
@@ -107,13 +184,14 @@ void SyntaxHighlighter::highlightBlock(const QString &text)
             continue;
         }
 
-        // Comentario de línea
-        if (!m_lang.lineComment.isEmpty() && rest.startsWith(m_lang.lineComment)) {
-            setFormat(i, len - i, m_commentFmt);
-            return;
+        // Variables ($HOME, ${x}, $#): antes que los comentarios para que "$#" no lo parezca
+        if (const int n = variableLength(text, i); n > 0) {
+            setFormat(i, n, m_variableFmt);
+            i += n;
+            continue;
         }
 
-        // Comentario de bloque
+        // Comentario de bloque (antes que el de línea: "--[[" en Lua empieza por "--")
         if (!m_lang.blockCommentStart.isEmpty() && rest.startsWith(m_lang.blockCommentStart)) {
             const int from = i + m_lang.blockCommentStart.length();
             const int end = text.indexOf(m_lang.blockCommentEnd, from);
@@ -128,22 +206,46 @@ void SyntaxHighlighter::highlightBlock(const QString &text)
             continue;
         }
 
-        // Cadena triple (Python)
-        if (!m_lang.tripleQuote.isEmpty() && rest.startsWith(m_lang.tripleQuote)) {
-            const int from = i + m_lang.tripleQuote.length();
-            const int end = text.indexOf(m_lang.tripleQuote, from);
+        // Comentario de línea
+        if (lineCommentAt(text, i, firstNonSpace)) {
+            setFormat(i, len - i, m_commentFmt);
+            return;
+        }
+
+        // Cadenas multilínea (""" y ''' en Python, text blocks de Java...)
+        bool triple = false;
+        for (int k = 0; k < m_lang.tripleQuotes.size() && !triple; ++k) {
+            const QString &quote = m_lang.tripleQuotes.at(k);
+            if (!rest.startsWith(quote))
+                continue;
+            triple = true;
+            const int from = i + quote.length();
+            const int end = text.indexOf(quote, from);
             if (end < 0) {
                 setFormat(i, len - i, m_stringFmt);
-                setCurrentBlockState(InTripleString);
+                setCurrentBlockState(InTripleString + k);
                 return;
             }
-            const int stop = end + m_lang.tripleQuote.length();
+            const int stop = end + quote.length();
             setFormat(i, stop - i, m_stringFmt);
             i = stop;
+        }
+        if (triple)
+            continue;
+
+        // Anotaciones y decoradores (@Override, @dataclass, @media)
+        if (m_lang.annotations && ch == QLatin1Char('@') && i + 1 < len
+            && (text.at(i + 1).isLetter() || text.at(i + 1) == QLatin1Char('_'))
+            && (i == 0 || !isWordChar(text.at(i - 1)))) {
+            int j = i + 1;
+            while (j < len && (isWordChar(text.at(j)) || text.at(j) == QLatin1Char('.') || text.at(j) == QLatin1Char('-')))
+                ++j;
+            setFormat(i, j - i, m_preprocFmt);
+            i = j;
             continue;
         }
 
-        // Cadenas simples
+        // Cadenas simples (una clave si va seguida de ':', como en JSON)
         if (m_lang.stringDelimiters.contains(ch)) {
             int j = i + 1;
             while (j < len && text.at(j) != ch) {
@@ -152,7 +254,13 @@ void SyntaxHighlighter::highlightBlock(const QString &text)
                 ++j;
             }
             const int stop = qMin(j + 1, len);
-            setFormat(i, stop - i, m_stringFmt);
+            int after = stop;
+            while (after < len && text.at(after).isSpace())
+                ++after;
+            const bool isKey = m_lang.keyValue && after < len && text.at(after) == QLatin1Char(':');
+            setFormat(i, stop - i, isKey ? m_keyFmt : m_stringFmt);
+            if (!isKey && ch != QLatin1Char('\''))
+                highlightVariables(text, i + 1, stop);
             i = stop;
             continue;
         }
