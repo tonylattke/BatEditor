@@ -447,10 +447,20 @@ QWidget *MainWindow::createEditorPage()
 
 void MainWindow::createMenus()
 {
+    // En modo Git el editor está oculto: sus atajos no deben tocarlo
     auto onEditor = [this](auto fn) {
         return [this, fn] {
+            if (m_pages->currentWidget() == m_git)
+                return;
             if (CodeEditor *e = currentEditor())
                 fn(e);
+        };
+    };
+    // Las vistas de solo lectura (diff, blame) no reclaman Ctrl+C / Ctrl+A, así que llegan aquí
+    auto onGitText = [](auto fn) {
+        return [fn] {
+            if (auto *text = qobject_cast<QPlainTextEdit *>(QApplication::focusWidget()))
+                fn(text);
         };
     };
 
@@ -506,7 +516,11 @@ void MainWindow::createMenus()
     addMenuAction(edit, tr("Rehacer"), QKeySequence(Qt::CTRL | Qt::Key_Y), this, onEditor([](CodeEditor *e) { e->redo(); }));
     edit->addSeparator();
     addMenuAction(edit, tr("Cortar"), QKeySequence::Cut, this, onEditor([](CodeEditor *e) { e->cutAll(); }));
-    addMenuAction(edit, tr("Copiar"), QKeySequence::Copy, this, onEditor([](CodeEditor *e) { e->copyAll(); }));
+    addMenuAction(edit, tr("Copiar"), QKeySequence::Copy, this,
+                  [this, editor = onEditor([](CodeEditor *e) { e->copyAll(); }),
+                   git = onGitText([](QPlainTextEdit *t) { t->copy(); })] {
+                      m_pages->currentWidget() == m_git ? git() : editor();
+                  });
     addMenuAction(edit, tr("Pegar"), QKeySequence::Paste, this, onEditor([](CodeEditor *e) { e->pasteAll(); }));
     edit->addSeparator();
     addMenuAction(edit, tr("Comentar / descomentar líneas"), QKeySequence(Qt::CTRL | Qt::Key_Slash), this,
@@ -520,10 +534,14 @@ void MainWindow::createMenus()
 
     // --- Selección ----------------------------------------------------------
     QMenu *sel = menuBar()->addMenu(tr("&Selección"));
-    addMenuAction(sel, tr("Seleccionar todo"), QKeySequence::SelectAll, this, onEditor([](CodeEditor *e) {
-        e->clearExtraCursors();
-        e->selectAll();
-    }));
+    addMenuAction(sel, tr("Seleccionar todo"), QKeySequence::SelectAll, this,
+                  [this, editor = onEditor([](CodeEditor *e) {
+                       e->clearExtraCursors();
+                       e->selectAll();
+                   }),
+                   git = onGitText([](QPlainTextEdit *t) { t->selectAll(); })] {
+                      m_pages->currentWidget() == m_git ? git() : editor();
+                  });
     sel->addSeparator();
     addMenuAction(sel, tr("Añadir siguiente coincidencia"), QKeySequence(Qt::CTRL | Qt::Key_D), this,
                    onEditor([](CodeEditor *e) { e->addNextOccurrence(); }));

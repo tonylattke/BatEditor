@@ -19,9 +19,11 @@ public:
 
 protected:
     void wheelEvent(QWheelEvent *e) override;
+    void contextMenuEvent(QContextMenuEvent *e) override;
 
 private:
     void fitHeight();
+    QString selectedCode() const;   // la selección sin las marcas +/-/espacio ni las cabeceras @@
 };
 
 // Un archivo cambiado: cabecera (plegable) con estado, ruta, estadísticas y acciones + su diff.

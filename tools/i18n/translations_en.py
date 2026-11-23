@@ -556,6 +556,7 @@ EN = {
     'Cerrar las pestañas de la izquierda': 'Close Tabs to the Left',
     'Cerrar todas las pestañas': 'Close All Tabs',
     'Cerrar las pestañas guardadas': 'Close Saved Tabs',
+    'Copiar sin marcas de diff': 'Copy Without Diff Markers',
     'Este repositorio tiene %1 submódulo(s).\n\n'
     '• Cambiar también los submódulos: los que tienen una rama «%2» cambian a ella (%3); el resto se queda como está.\n\n'
     '• Solo el proyecto: los submódulos se ponen en el commit que registra «%2» (git submodule update).':

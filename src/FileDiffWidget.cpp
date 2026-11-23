@@ -3,9 +3,12 @@
 #include "DiffHighlighter.h"
 #include "Theme.h"
 
-#include <QHBoxLayout>
+#include <QClipboard>
 #include <QContextMenuEvent>
+#include <QGuiApplication>
+#include <QHBoxLayout>
 #include <QLabel>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QScrollBar>
 #include <QTextBlock>
@@ -83,6 +86,44 @@ void DiffTextView::wheelEvent(QWheelEvent *e)
         return;
     }
     QPlainTextEdit::wheelEvent(e);
+}
+
+void DiffTextView::contextMenuEvent(QContextMenuEvent *e)
+{
+    const bool hasSelection = textCursor().hasSelection();
+    QMenu menu(this);
+    QAction *copyAction = menu.addAction(tr("Copiar"), this, &QPlainTextEdit::copy);
+    copyAction->setShortcut(QKeySequence::Copy);
+    copyAction->setEnabled(hasSelection);
+    menu.addAction(tr("Copiar sin marcas de diff"), this, [this] {
+            QGuiApplication::clipboard()->setText(selectedCode());
+        })->setEnabled(hasSelection);
+    menu.addSeparator();
+    QAction *selectAllAction = menu.addAction(tr("Seleccionar todo"), this, &QPlainTextEdit::selectAll);
+    selectAllAction->setShortcut(QKeySequence::SelectAll);
+    menu.exec(e->globalPos());
+}
+
+QString DiffTextView::selectedCode() const
+{
+    const QTextCursor cursor = textCursor();
+    const bool startsMidLine = document()->findBlock(cursor.selectionStart()).position() != cursor.selectionStart();
+    QStringList lines = cursor.selectedText().split(QChar::ParagraphSeparator);
+    QStringList code;
+    for (int i = 0; i < lines.size(); ++i) {
+        const QString &line = lines.at(i);
+        if (i == 0 && startsMidLine) {
+            code << line;
+            continue;
+        }
+        if (line.startsWith(QLatin1String("@@")) || line.startsWith(QLatin1String("\\ ")))
+            continue;
+        if (line.startsWith(QLatin1Char('+')) || line.startsWith(QLatin1Char('-')) || line.startsWith(QLatin1Char(' ')))
+            code << line.mid(1);
+        else
+            code << line;
+    }
+    return code.join(QLatin1Char('\n'));
 }
 
 // ---------------------------------------------------------------------------
