@@ -376,6 +376,34 @@ QWidget *MainWindow::createEditorPage()
     m_tabs->tabBar()->setElideMode(Qt::ElideNone);
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int i) { closeTab(i); });
     Theme::enableMiddleClickClose(m_tabs);
+    Theme::enableTabContextMenu(m_tabs, [this](QMenu *menu, int index) {
+        menu->addAction(tr("Cerrar las pestañas guardadas"), this, [this] {
+            QList<QPointer<EditorTab>> saved;
+            for (int i = 0; i < m_tabs->count(); ++i)
+                if (EditorTab *t = tabAt(i); t && !t->isModified())
+                    saved << t;
+            for (const QPointer<EditorTab> &t : std::as_const(saved))
+                if (t && m_tabs->indexOf(t) >= 0)
+                    closeTab(m_tabs->indexOf(t));
+        });
+        EditorTab *tab = tabAt(index);
+        if (!tab || tab->kind() != EditorTab::Kind::File || tab->isUntitled())
+            return;
+        const QString path = tab->filePath();
+        menu->addSeparator();
+        menu->addAction(tr("Copiar ruta"), this, [path] {
+            QGuiApplication::clipboard()->setText(QDir::toNativeSeparators(path));
+        });
+        if (!m_rootPath.isEmpty() && QDir::cleanPath(path).startsWith(QDir::cleanPath(m_rootPath) + QLatin1Char('/'))) {
+            const QString relative = QDir(m_rootPath).relativeFilePath(path);
+            menu->addAction(tr("Copiar ruta relativa"), this, [relative] {
+                QGuiApplication::clipboard()->setText(QDir::toNativeSeparators(relative));
+            });
+        }
+        menu->addAction(tr("Abrir la carpeta en el explorador"), this, [this, path] { revealInExplorer(path); });
+        menu->addAction(tr("Abrir terminal en la carpeta"), this,
+                        [this, path] { openTerminal(QFileInfo(path).absolutePath()); });
+    });
     connect(m_tabs, &QTabWidget::currentChanged, this, [this] {
         updateWindowTitle();
         updateStatus();

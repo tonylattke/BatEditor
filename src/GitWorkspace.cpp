@@ -4,15 +4,20 @@
 #include "RepositoryView.h"
 #include "Theme.h"
 
+#include <QClipboard>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFileDialog>
+#include <QGuiApplication>
 #include <QLabel>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QTabWidget>
 #include <QToolButton>
+#include <QUrl>
 #include <QVBoxLayout>
 
 namespace {
@@ -58,6 +63,19 @@ GitWorkspace::GitWorkspace(QWidget *parent)
     // --- Pestañas de repositorios ---
     m_tabs->setTabsClosable(true);
     Theme::enableMiddleClickClose(m_tabs);
+    Theme::enableTabContextMenu(m_tabs, [this](QMenu *menu, int index) {
+        RepositoryView *view = viewAt(index);
+        if (!view)
+            return;
+        const QString path = view->path();
+        menu->addSeparator();
+        menu->addAction(tr("Copiar ruta"), this, [path] {
+            QGuiApplication::clipboard()->setText(QDir::toNativeSeparators(path));
+        });
+        menu->addAction(tr("Abrir en el editor"), this, [this, path] { Q_EMIT openFolderRequested(path); });
+        menu->addAction(tr("Abrir en el explorador"), this,
+                        [path] { QDesktopServices::openUrl(QUrl::fromLocalFile(path)); });
+    });
     m_tabs->setMovable(true);
     m_tabs->setDocumentMode(true);
     m_tabs->tabBar()->setExpanding(false);

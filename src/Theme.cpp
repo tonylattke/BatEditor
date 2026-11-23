@@ -2,7 +2,9 @@
 
 #include <QApplication>
 #include <QFontDatabase>
+#include <QMenu>
 #include <QPalette>
+#include <QPointer>
 #include <QStyleFactory>
 #include <QMouseEvent>
 #include <QTabBar>
@@ -53,6 +55,49 @@ private:
 void enableMiddleClickClose(QTabWidget *tabs)
 {
     tabs->tabBar()->installEventFilter(new MiddleClickCloser(tabs));
+}
+
+void enableTabContextMenu(QTabWidget *tabs, std::function<void(QMenu *, int)> extra)
+{
+    QTabBar *bar = tabs->tabBar();
+    bar->setContextMenuPolicy(Qt::CustomContextMenu);
+    QObject::connect(bar, &QWidget::customContextMenuRequested, tabs, [tabs, bar, extra](const QPoint &pos) {
+        const int index = bar->tabAt(pos);
+        if (index < 0)
+            return;
+        const int count = tabs->count();
+        auto closeRange = [tabs](int from, int to, int keep) {
+            QList<QPointer<QWidget>> widgets;
+            for (int i = from; i < to; ++i)
+                if (i != keep)
+                    widgets << tabs->widget(i);
+            for (const QPointer<QWidget> &w : std::as_const(widgets)) {
+                const int i = w ? tabs->indexOf(w) : -1;
+                if (i < 0)
+                    continue;
+                Q_EMIT tabs->tabCloseRequested(i);
+                if (w && tabs->indexOf(w) >= 0)
+                    return;
+            }
+        };
+        QMenu menu(tabs);
+        menu.addAction(QCoreApplication::translate("Theme", "Cerrar pestaña"), tabs,
+                       [closeRange, index] { closeRange(index, index + 1, -1); });
+        menu.addAction(QCoreApplication::translate("Theme", "Cerrar las demás pestañas"), tabs,
+                       [closeRange, index, count] { closeRange(0, count, index); })
+            ->setEnabled(count > 1);
+        menu.addAction(QCoreApplication::translate("Theme", "Cerrar las pestañas de la derecha"), tabs,
+                       [closeRange, index, count] { closeRange(index + 1, count, -1); })
+            ->setEnabled(index < count - 1);
+        menu.addAction(QCoreApplication::translate("Theme", "Cerrar las pestañas de la izquierda"), tabs,
+                       [closeRange, index] { closeRange(0, index, -1); })
+            ->setEnabled(index > 0);
+        menu.addAction(QCoreApplication::translate("Theme", "Cerrar todas las pestañas"), tabs,
+                       [closeRange, count] { closeRange(0, count, -1); });
+        if (extra)
+            extra(&menu, index);
+        menu.exec(bar->mapToGlobal(pos));
+    });
 }
 
 const Colors &colors()

@@ -3,7 +3,10 @@
 #include <QColor>
 #include <QFont>
 
+#include <functional>
+
 class QApplication;
+class QMenu;
 
 // Paleta oscura propia de BatCode ("Noche").
 class QTabWidget;
@@ -52,5 +55,11 @@ void apply(QApplication &app);
 // Clic con la rueda (botón central) sobre una pestaña = cerrarla, como en Sublime.
 // Emite tabCloseRequested(i), así que pasa por el mismo camino que la ✕.
 void enableMiddleClickClose(QTabWidget *tabs);
+
+// Menú contextual de la barra de pestañas: cerrar la pestaña, las demás, las de la derecha,
+// las de la izquierda y todas. Cierra emitiendo tabCloseRequested(i), igual que la ✕; si una
+// pestaña sigue abierta después (se canceló al preguntar), no cierra las siguientes.
+// `extra` añade al final del menú las opciones propias de la pestaña pulsada.
+void enableTabContextMenu(QTabWidget *tabs, std::function<void(QMenu *menu, int index)> extra = {});
 
 } // namespace Theme

@@ -551,6 +551,11 @@ EN = {
     '%1 copiado(s) a %2': '%1 copied to %2',
     'Ya estás en la rama «%1». ¿Qué hago con los submódulos?': 'You are already on branch "%1". What should happen to the submodules?',
     '¿Crear la rama «%1» y cambiar a ella?': 'Create branch "%1" and switch to it?',
+    'Cerrar las demás pestañas': 'Close Other Tabs',
+    'Cerrar las pestañas de la derecha': 'Close Tabs to the Right',
+    'Cerrar las pestañas de la izquierda': 'Close Tabs to the Left',
+    'Cerrar todas las pestañas': 'Close All Tabs',
+    'Cerrar las pestañas guardadas': 'Close Saved Tabs',
     'Este repositorio tiene %1 submódulo(s).\n\n'
     '• Cambiar también los submódulos: los que tienen una rama «%2» cambian a ella (%3); el resto se queda como está.\n\n'
     '• Solo el proyecto: los submódulos se ponen en el commit que registra «%2» (git submodule update).':
