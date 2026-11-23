@@ -1,10 +1,12 @@
 #include "Theme.h"
 
 #include <QApplication>
+#include <QCursor>
 #include <QFontDatabase>
 #include <QGridLayout>
 #include <QLabel>
 #include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QPalette>
 #include <QPointer>
@@ -57,6 +59,49 @@ protected:
 private:
     QTabWidget *m_tabs;
     int m_pressed = -1;
+};
+
+// En X11 con monitores a distinta altura, Qt puede tomar como área útil de cada pantalla la
+// de _NET_WORKAREA (una sola para todo el escritorio) y baja los menús hasta su borde superior,
+// lejos de la barra de menús. Si un menú quedó justo en ese borde falso, se sube a donde toca:
+// bajo su título en la barra, junto a su opción en un submenú o en el puntero en un menú contextual.
+class MenuPositionFixer : public QObject
+{
+public:
+    using QObject::QObject;
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() != QEvent::Show)
+            return false;
+        auto *menu = qobject_cast<QMenu *>(watched);
+        if (!menu || !menu->isWindow())
+            return false;
+        QScreen *screen = QGuiApplication::screenAt(menu->geometry().center());
+        if (!screen)
+            return false;
+        const QRect full = screen->geometry();
+        const QRect available = screen->availableGeometry();
+        const bool clamped = available.top() > full.top() && menu->y() == available.top();
+
+        int wantedY;
+        QWidget *parent = menu->parentWidget();
+        if (auto *bar = qobject_cast<QMenuBar *>(parent); bar && bar->activeAction() == menu->menuAction()) {
+            // Los de la barra siempre se abren justo debajo de su título
+            wantedY = bar->mapToGlobal(bar->actionGeometry(menu->menuAction()).bottomLeft()).y() + 1;
+        } else if (!clamped) {
+            return false;
+        } else if (auto *parentMenu = qobject_cast<QMenu *>(parent); parentMenu && parentMenu->activeAction() == menu->menuAction()) {
+            wantedY = parentMenu->mapToGlobal(parentMenu->actionGeometry(menu->menuAction()).topLeft()).y();
+        } else {
+            wantedY = QCursor::pos().y();
+        }
+        if (wantedY >= menu->y() || wantedY < full.top() || wantedY + menu->height() > full.bottom() + 1)
+            return false;
+        menu->move(menu->x(), wantedY);
+        return false;
+    }
 };
 
 // Ajusta cada QMessageBox justo antes de mostrarse:
@@ -247,6 +292,7 @@ void apply(QApplication &app)
 {
     const Colors &c = colors();
     app.installEventFilter(new MessageBoxPolisher(&app));
+    app.installEventFilter(new MenuPositionFixer(&app));
     app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
     app.setFont(uiFont());
 
