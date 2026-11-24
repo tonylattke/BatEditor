@@ -31,7 +31,11 @@ class FileDiffWidget : public QWidget
 {
     Q_OBJECT
 public:
-    explicit FileDiffWidget(const GitRepository::FileChange &change, QWidget *parent = nullptr);
+    // Qué botones mostrar en cada bloque @@ del diff
+    enum class HunkActions { None, Unstaged, Staged };
+
+    explicit FileDiffWidget(const GitRepository::FileChange &change, QWidget *parent = nullptr,
+                            HunkActions hunkActions = HunkActions::None);
 
     QToolButton *addAction(const QString &text, const QString &toolTip);
     void setExpanded(bool expanded);
@@ -40,9 +44,14 @@ public:
 
 Q_SIGNALS:
     void contextMenuRequested(const QPoint &globalPos);   // clic derecho en la cabecera
+    void hunkStageRequested(int index);
+    void hunkDiscardRequested(int index);
+    void hunkUnstageRequested(int index);
 
 private:
+    QWidget *makeHunkBlock(const QString &hunkText, int index);
     GitRepository::FileChange m_change;
+    HunkActions m_hunkActions = HunkActions::None;
     QToolButton *m_toggle;
     QHBoxLayout *m_actions;
     QWidget *m_body;

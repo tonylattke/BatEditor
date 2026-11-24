@@ -162,7 +162,9 @@ superior con la rama actual, «Abrir en el editor» y «Actualizar» (`F5`), y *
      (o `Ctrl+Enter`), más las secciones **Archivos modificados**, **Archivos sin seguimiento** y
      **Archivos preparados** (en el mismo orden que Sublime Merge).
      Cada archivo tiene sus acciones (Preparar, Quitar, Descartar, Abrir) y cada sección tiene
-     «Preparar todo» o «Quitar todo».
+     «Preparar todo» o «Quitar todo». Si un archivo tiene **varios bloques** de diff (`@@`),
+     cada bloque muestra **Preparar bloque** / **Descartar bloque** (cambios sin preparar) o
+     **Quitar bloque** / **Descartar bloque** (preparados), como en Sublime Merge.
    - Las secciones son **listas desplegables**: un clic en la cabecera (▼/▶), en el detalle o en la
      pestaña *Archivos*, la pliega o despliega. El **clic derecho en la cabecera** ofrece:
      - Modificados: preparar N archivos, descartar sus cambios, guardar parche…

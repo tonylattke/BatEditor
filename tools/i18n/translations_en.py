@@ -624,6 +624,20 @@ EN = {
     'Bloquear worktree…': 'Lock Worktree…',
     'Reparar worktree': 'Repair Worktree',
     'Podar enlace administrativo': 'Prune Administrative Link',
+    'Descartar bloque': 'Discard Hunk',
+    'Descartar solo este bloque de cambios en el directorio de trabajo': 'Discard only this hunk in the working directory',
+    'Preparar bloque': 'Stage Hunk',
+    'Preparar solo este bloque para el próximo commit': 'Stage only this hunk for the next commit',
+    'Descartar este bloque en el índice y en el directorio de trabajo': 'Discard this hunk in the index and working directory',
+    'Quitar bloque': 'Unstage Hunk',
+    'Quitar solo este bloque de preparados': 'Unstage only this hunk',
+    'preparar bloque': 'stage hunk',
+    'descartar bloque': 'discard hunk',
+    'quitar bloque de preparados': 'unstage hunk',
+    'No se encontró git en el PATH': 'git was not found in PATH',
+    'No se pudo crear un archivo temporal': 'Could not create a temporary file',
+    'git apply no terminó a tiempo': 'git apply did not finish in time',
+    'git apply falló (código %1)': 'git apply failed (code %1)',
 }
 
 # Tabla de atajos (HTML): se traduce por frases

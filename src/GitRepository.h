@@ -134,6 +134,9 @@ public:
     bool unstageAll();
     bool discard(const QString &path);
     bool discardAll();   // índice y directorio de trabajo como HEAD (git reset --hard); no toca los sin seguimiento
+    // Aplica un bloque @@ de diff unificado (con cabecera generada para este archivo)
+    bool applyHunk(const FileChange &file, const QString &hunk, bool toIndex, bool reverse);
+    static QStringList splitPatchHunks(const QString &patch);
     bool commit(const QString &message, QString *newCommitId = nullptr);
     bool checkoutBranch(const QString &branchName);
 

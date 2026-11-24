@@ -920,8 +920,15 @@ void RepositoryView::showWorkingDirectory()
         if (collapsed)
             return;   // plegada: ni diffs ni archivos en la lista
 
+        const auto hunkActionsFor = [](const QString &section) {
+            if (section == QLatin1String("unstaged"))
+                return FileDiffWidget::HunkActions::Unstaged;
+            if (section == QLatin1String("staged"))
+                return FileDiffWidget::HunkActions::Staged;
+            return FileDiffWidget::HunkActions::None;
+        };
         for (const auto &f : files) {
-            auto *w = new FileDiffWidget(f, content);
+            auto *w = new FileDiffWidget(f, content, hunkActionsFor(id));
             const QString key = id + QLatin1Char(':') + f.path;
             widgets.insert(key, w);
             const QString abs = QDir(m_repo.workdir()).absoluteFilePath(f.path);
@@ -965,6 +972,17 @@ void RepositoryView::showWorkingDirectory()
                 selectFileForMenu(key);
                 showFileMenu(pos);
             });
+            if (id == QLatin1String("unstaged")) {
+                connect(w, &FileDiffWidget::hunkStageRequested, this,
+                        [this, f](int index) { stageHunk(f, index); });
+                connect(w, &FileDiffWidget::hunkDiscardRequested, this,
+                        [this, f](int index) { discardUnstagedHunk(f, index); });
+            } else if (id == QLatin1String("staged")) {
+                connect(w, &FileDiffWidget::hunkUnstageRequested, this,
+                        [this, f](int index) { unstageHunk(f, index); });
+                connect(w, &FileDiffWidget::hunkDiscardRequested, this,
+                        [this, f](int index) { discardStagedHunk(f, index); });
+            }
         }
     };
     // Mismo orden que Sublime Merge: modificados, sin seguimiento y preparados
@@ -1735,6 +1753,50 @@ void RepositoryView::toggleStageSelected()
     for (const FileRef &f : toUnstage)
         ok = m_repo.unstage(f.path) && ok;
     report(ok, tr("preparar o quitar los archivos"));
+    reload();
+}
+
+void RepositoryView::stageHunk(const GitRepository::FileChange &file, int index)
+{
+    const QStringList hunks = GitRepository::splitPatchHunks(file.patch);
+    if (index < 0 || index >= hunks.size())
+        return;
+    report(m_repo.applyHunk(file, hunks.at(index), true, false), tr("preparar bloque"));
+    m_workingSelected = true;
+    reload();
+}
+
+void RepositoryView::discardUnstagedHunk(const GitRepository::FileChange &file, int index)
+{
+    const QStringList hunks = GitRepository::splitPatchHunks(file.patch);
+    if (index < 0 || index >= hunks.size())
+        return;
+    report(m_repo.applyHunk(file, hunks.at(index), false, true), tr("descartar bloque"));
+    m_workingSelected = true;
+    reload();
+}
+
+void RepositoryView::unstageHunk(const GitRepository::FileChange &file, int index)
+{
+    const QStringList hunks = GitRepository::splitPatchHunks(file.patch);
+    if (index < 0 || index >= hunks.size())
+        return;
+    report(m_repo.applyHunk(file, hunks.at(index), true, true), tr("quitar bloque de preparados"));
+    m_workingSelected = true;
+    reload();
+}
+
+void RepositoryView::discardStagedHunk(const GitRepository::FileChange &file, int index)
+{
+    const QStringList hunks = GitRepository::splitPatchHunks(file.patch);
+    if (index < 0 || index >= hunks.size())
+        return;
+    const QString hunk = hunks.at(index);
+    bool ok = m_repo.applyHunk(file, hunk, true, true);
+    if (ok)
+        ok = m_repo.applyHunk(file, hunk, false, true);
+    report(ok, tr("descartar bloque"));
+    m_workingSelected = true;
     reload();
 }
 

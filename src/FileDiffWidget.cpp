@@ -159,9 +159,10 @@ private:
 
 } // namespace
 
-FileDiffWidget::FileDiffWidget(const GitRepository::FileChange &change, QWidget *parent)
+FileDiffWidget::FileDiffWidget(const GitRepository::FileChange &change, QWidget *parent, HunkActions hunkActions)
     : QWidget(parent)
     , m_change(change)
+    , m_hunkActions(hunkActions)
 {
     const Theme::Colors &c = Theme::colors();
 
@@ -230,9 +231,15 @@ FileDiffWidget::FileDiffWidget(const GitRepository::FileChange &change, QWidget 
         msg->setPalette(p);
         bl->addWidget(msg);
     } else {
-        auto *view = new DiffTextView(m_body);
-        view->setDiffText(change.patch);
-        bl->addWidget(view);
+        const QStringList hunks = GitRepository::splitPatchHunks(change.patch);
+        if (hunkActions == HunkActions::None || hunks.isEmpty()) {
+            auto *view = new DiffTextView(m_body);
+            view->setDiffText(change.patch);
+            bl->addWidget(view);
+        } else {
+            for (int i = 0; i < hunks.size(); ++i)
+                bl->addWidget(makeHunkBlock(hunks.at(i), i));
+        }
         if (change.truncated) {
             auto *more = new QLabel(tr("… diff recortado (archivo muy grande)"), m_body);
             more->setContentsMargins(36, 4, 8, 4);
@@ -264,4 +271,42 @@ void FileDiffWidget::setExpanded(bool expanded)
     m_expanded = expanded;
     m_body->setVisible(expanded);
     m_toggle->setText(expanded ? QStringLiteral("▾") : QStringLiteral("▸"));
+}
+
+QWidget *FileDiffWidget::makeHunkBlock(const QString &hunkText, int index)
+{
+    auto *row = new QWidget(m_body);
+    auto *hl = new QHBoxLayout(row);
+    hl->setContentsMargins(28, 4, 8, 8);
+    hl->setSpacing(8);
+
+    auto *view = new DiffTextView(row);
+    view->setDiffText(hunkText);
+    hl->addWidget(view, 1);
+
+    if (m_hunkActions != HunkActions::None) {
+        auto *actions = new QVBoxLayout;
+        actions->setSpacing(4);
+        actions->addStretch(1);
+        auto addBtn = [&](const QString &text, const QString &tip, void (FileDiffWidget::*signal)(int)) {
+            auto *b = new QToolButton(row);
+            b->setText(text);
+            b->setToolTip(tip);
+            connect(b, &QToolButton::clicked, this, [this, index, signal] { (this->*signal)(index); });
+            actions->addWidget(b);
+        };
+        if (m_hunkActions == HunkActions::Unstaged) {
+            addBtn(tr("Descartar bloque"), tr("Descartar solo este bloque de cambios en el directorio de trabajo"),
+                   &FileDiffWidget::hunkDiscardRequested);
+            addBtn(tr("Preparar bloque"), tr("Preparar solo este bloque para el próximo commit"),
+                   &FileDiffWidget::hunkStageRequested);
+        } else {
+            addBtn(tr("Descartar bloque"), tr("Descartar este bloque en el índice y en el directorio de trabajo"),
+                   &FileDiffWidget::hunkDiscardRequested);
+            addBtn(tr("Quitar bloque"), tr("Quitar solo este bloque de preparados"), &FileDiffWidget::hunkUnstageRequested);
+        }
+        actions->addStretch(1);
+        hl->addLayout(actions);
+    }
+    return row;
 }

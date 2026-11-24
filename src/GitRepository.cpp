@@ -4,7 +4,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QProcess>
 #include <QStandardPaths>
+#include <QTemporaryFile>
 
 #include <git2.h>
 #include <git2/worktree.h>
@@ -867,6 +869,89 @@ bool GitRepository::discard(const QString &path)
     opts.checkout_strategy = GIT_CHECKOUT_FORCE | GIT_CHECKOUT_DISABLE_PATHSPEC_MATCH;
     opts.paths = *spec.get();
     return check(git_checkout_index(m_repo, nullptr, &opts), "discard");
+}
+
+QStringList GitRepository::splitPatchHunks(const QString &patch)
+{
+    QStringList hunks;
+    QString current;
+    for (const QString &line : patch.split(QLatin1Char('\n'))) {
+        if (line.startsWith(QLatin1String("@@")) && !current.trimmed().isEmpty()) {
+            hunks << current.trimmed();
+            current.clear();
+        }
+        current += line;
+        current += QLatin1Char('\n');
+    }
+    if (!current.trimmed().isEmpty())
+        hunks << current.trimmed();
+    return hunks;
+}
+
+namespace {
+
+QString pathForDiff(const QString &path)
+{
+    return QString(path).replace(QLatin1Char('\\'), QLatin1Char('/'));
+}
+
+QString unifiedHunkPatch(const GitRepository::FileChange &c, const QString &hunk)
+{
+    const QString oldP = (c.code == QLatin1Char('A') || c.code == QLatin1Char('?'))
+                             ? QStringLiteral("/dev/null")
+                             : pathForDiff(c.oldPath.isEmpty() ? c.path : c.oldPath);
+    const QString newP =
+        c.code == QLatin1Char('D') ? QStringLiteral("/dev/null") : pathForDiff(c.path);
+    return QStringLiteral("diff --git a/%1 b/%2\n--- a/%3\n+++ b/%4\n%5\n")
+        .arg(oldP, newP, oldP, newP, hunk);
+}
+
+} // namespace
+
+bool GitRepository::applyHunk(const FileChange &file, const QString &hunk, bool toIndex, bool reverse)
+{
+    if (!m_repo || hunk.trimmed().isEmpty())
+        return false;
+    const QString git = gitExecutable();
+    if (git.isEmpty()) {
+        m_lastError = gtr("No se encontró git en el PATH");
+        return false;
+    }
+    if (toIndex && !reverse && (file.code == QLatin1Char('?') || file.code == QLatin1Char('A'))) {
+        QProcess intent;
+        intent.setWorkingDirectory(m_workdir);
+        intent.start(git, {QStringLiteral("add"), QStringLiteral("-N"), file.path});
+        intent.waitForFinished(30'000);
+    }
+    const QByteArray patch = unifiedHunkPatch(file, hunk).toUtf8();
+    QTemporaryFile tmp;
+    tmp.setAutoRemove(true);
+    if (!tmp.open()) {
+        m_lastError = gtr("No se pudo crear un archivo temporal");
+        return false;
+    }
+    tmp.write(patch);
+    tmp.close();
+
+    QProcess p;
+    p.setWorkingDirectory(m_workdir);
+    QStringList args{QStringLiteral("apply"), QStringLiteral("--whitespace=nowarn")};
+    if (toIndex)
+        args << QStringLiteral("--cached");
+    if (reverse)
+        args << QStringLiteral("--reverse");
+    args << tmp.fileName();
+    p.start(git, args);
+    if (!p.waitForFinished(120'000)) {
+        m_lastError = gtr("git apply no terminó a tiempo");
+        return false;
+    }
+    if (p.exitCode() != 0) {
+        const QString err = QString::fromUtf8(p.readAllStandardError()).trimmed();
+        m_lastError = err.isEmpty() ? gtr("git apply falló (código %1)").arg(p.exitCode()) : err;
+        return false;
+    }
+    return true;
 }
 
 bool GitRepository::discardAll()

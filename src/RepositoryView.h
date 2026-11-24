@@ -87,6 +87,10 @@ private:
     void showWorkingMenu(const QPoint &globalPos);   // fila de cambios sin confirmar
     void stageAllChanges();
     void discardAllChanges();
+    void stageHunk(const GitRepository::FileChange &file, int index);
+    void discardUnstagedHunk(const GitRepository::FileChange &file, int index);
+    void unstageHunk(const GitRepository::FileChange &file, int index);
+    void discardStagedHunk(const GitRepository::FileChange &file, int index);
     void checkoutCommit(const QString &sha);
     void createBranchAt(const QString &sha);
     void createTagAt(const QString &sha);
