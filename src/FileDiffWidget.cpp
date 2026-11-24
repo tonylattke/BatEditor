@@ -7,6 +7,8 @@
 #include <QContextMenuEvent>
 #include <QGuiApplication>
 #include <QHBoxLayout>
+#include <QResizeEvent>
+#include <QShowEvent>
 #include <QLabel>
 #include <QMenu>
 #include <QMouseEvent>
@@ -157,6 +159,81 @@ private:
     std::function<void(const QPoint &)> m_onMenu;
 };
 
+// Diff con botones de hunk flotando arriba a la derecha (como Sublime Merge)
+class HunkDiffPane : public QWidget
+{
+public:
+    explicit HunkDiffPane(const QString &hunkText, QWidget *parent)
+        : QWidget(parent)
+        , m_view(new DiffTextView(this))
+        , m_buttons(new QWidget(this))
+    {
+        m_view->setDiffText(hunkText);
+        auto *layout = new QVBoxLayout(this);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->addWidget(m_view);
+
+        m_buttons->setAutoFillBackground(false);
+        auto *stack = new QVBoxLayout(m_buttons);
+        stack->setContentsMargins(0, 0, 0, 0);
+        stack->setSpacing(3);
+    }
+
+    DiffTextView *view() const { return m_view; }
+    QVBoxLayout *buttonLayout() const
+    {
+        return qobject_cast<QVBoxLayout *>(m_buttons->layout());
+    }
+
+    void placeButtons()
+    {
+        m_buttons->adjustSize();
+        constexpr int pad = 6;
+        m_buttons->move(qMax(0, width() - m_buttons->width() - pad), pad);
+        m_buttons->raise();
+    }
+
+protected:
+    void resizeEvent(QResizeEvent *e) override
+    {
+        QWidget::resizeEvent(e);
+        placeButtons();
+    }
+
+    void showEvent(QShowEvent *e) override
+    {
+        QWidget::showEvent(e);
+        placeButtons();
+    }
+
+private:
+    DiffTextView *m_view;
+    QWidget *m_buttons;
+};
+
+QString hunkButtonStyle()
+{
+    const Theme::Colors &c = Theme::colors();
+    return QStringLiteral(
+               "QToolButton {"
+               "  background: rgba(%1, %2, %3, 230);"
+               "  border: 1px solid %4;"
+               "  border-radius: 3px;"
+               "  padding: 3px 8px;"
+               "  color: %5;"
+               "  font-size: 11px;"
+               "}"
+               "QToolButton:hover { background: %6; }"
+               "QToolButton:pressed { background: %7; }")
+        .arg(c.panel.red())
+        .arg(c.panel.green())
+        .arg(c.panel.blue())
+        .arg(c.border.name())
+        .arg(c.foreground.name())
+        .arg(c.backgroundAlt.name())
+        .arg(c.border.name());
+}
+
 } // namespace
 
 FileDiffWidget::FileDiffWidget(const GitRepository::FileChange &change, QWidget *parent, HunkActions hunkActions)
@@ -276,24 +353,21 @@ void FileDiffWidget::setExpanded(bool expanded)
 QWidget *FileDiffWidget::makeHunkBlock(const QString &hunkText, int index)
 {
     auto *row = new QWidget(m_body);
-    auto *hl = new QHBoxLayout(row);
-    hl->setContentsMargins(28, 4, 8, 8);
-    hl->setSpacing(8);
-
-    auto *view = new DiffTextView(row);
-    view->setDiffText(hunkText);
-    hl->addWidget(view, 1);
+    auto *outer = new QVBoxLayout(row);
+    outer->setContentsMargins(28, 4, 8, 8);
+    auto *pane = new HunkDiffPane(hunkText, row);
+    outer->addWidget(pane);
 
     if (m_hunkActions != HunkActions::None) {
-        auto *actions = new QVBoxLayout;
-        actions->setSpacing(4);
-        actions->addStretch(1);
+        const QString style = hunkButtonStyle();
         auto addBtn = [&](const QString &text, const QString &tip, void (FileDiffWidget::*signal)(int)) {
-            auto *b = new QToolButton(row);
+            auto *b = new QToolButton(pane);
             b->setText(text);
             b->setToolTip(tip);
+            b->setStyleSheet(style);
+            b->setAutoRaise(false);
             connect(b, &QToolButton::clicked, this, [this, index, signal] { (this->*signal)(index); });
-            actions->addWidget(b);
+            pane->buttonLayout()->addWidget(b);
         };
         if (m_hunkActions == HunkActions::Unstaged) {
             addBtn(tr("Descartar bloque"), tr("Descartar solo este bloque de cambios en el directorio de trabajo"),
@@ -305,8 +379,7 @@ QWidget *FileDiffWidget::makeHunkBlock(const QString &hunkText, int index)
                    &FileDiffWidget::hunkDiscardRequested);
             addBtn(tr("Quitar bloque"), tr("Quitar solo este bloque de preparados"), &FileDiffWidget::hunkUnstageRequested);
         }
-        actions->addStretch(1);
-        hl->addLayout(actions);
+        pane->placeButtons();
     }
     return row;
 }
