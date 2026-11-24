@@ -44,6 +44,12 @@ archivos abiertos.
 
 - Pestañas que se pueden mover y cerrar, con el indicador ● de cambios sin guardar. Doble clic en
   la barra vacía crea un archivo nuevo.
+- **Sacar una pestaña a otra ventana**, como en Sublime Text o VS Code: arrástrala y suéltala fuera
+  de la ventana para abrirla en una ventana nueva, o suéltala sobre otra ventana de BatCode para
+  moverla allí. El clic derecho en la pestaña ofrece lo mismo: «Mover a una ventana nueva» y
+  «Mover a la ventana …». La pestaña conserva sus cambios sin guardar, el cursor y el deshacer.
+  Una ventana secundaria se cierra sola al quedarse sin pestañas y no guarda la sesión: al
+  reabrir BatCode se restaura la sesión de la ventana principal.
 - **Recarga automática**: si otro programa (u otro `git checkout`) cambia un archivo abierto y la
   pestaña no tiene cambios sin guardar, se recarga sola, conservando el cursor y el scroll; `Ctrl+Z`
   vuelve a la versión anterior. Si la pestaña tiene cambios sin guardar no se toca: solo aparece un

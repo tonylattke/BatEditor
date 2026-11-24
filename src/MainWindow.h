@@ -41,6 +41,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void createMenus();
@@ -64,6 +65,11 @@ private:
     // Arrastrar y soltar en el explorador: pregunta mover / copiar / cancelar
     void dropIntoFolder(const QStringList &sources, const QString &targetDir);
     EditorTab *newTab();
+    void attachTab(EditorTab *tab);   // conexiones de una pestaña de archivo con esta ventana
+    // Sacar pestañas a otra ventana (arrastrándolas fuera o desde el menú de la pestaña)
+    MainWindow *createDetachedWindow(const QPoint &globalPos, bool placeAtCursor);
+    void moveTabToWindow(EditorTab *tab, MainWindow *target);
+    void receiveTab(EditorTab *tab);
     bool closeTab(int index);
     bool maybeSave(EditorTab *tab);
     bool saveTab(EditorTab *tab);
@@ -127,4 +133,9 @@ private:
     QFileSystemWatcher *m_fileWatcher = nullptr;
     QTimer *m_externalTimer = nullptr;   // agrupa los avisos (un guardado puede generar varios)
     QSet<QString> m_externalPending;
+
+    // Ventanas creadas al sacar una pestaña: no guardan la sesión y se cierran al quedarse vacías
+    bool m_detached = false;
+    QPointer<EditorTab> m_dragTab;   // pestaña pulsada en la barra (posible arrastre fuera)
+    QPoint m_dragStart;
 };

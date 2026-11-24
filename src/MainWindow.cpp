@@ -28,6 +28,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMimeData>
+#include <QMouseEvent>
 #include <QTimer>
 #include <QCursor>
 #include <QMenu>
@@ -395,7 +396,25 @@ QWidget *MainWindow::createEditorPage()
                     closeTab(m_tabs->indexOf(t));
         });
         EditorTab *tab = tabAt(index);
-        if (!tab || tab->kind() != EditorTab::Kind::File || tab->isUntitled())
+        if (!tab || tab->kind() != EditorTab::Kind::File)
+            return;
+        menu->addSeparator();
+        QPointer<EditorTab> guarded(tab);
+        menu->addAction(tr("Mover a una ventana nueva"), this, [this, guarded] {
+            if (guarded)
+                moveTabToWindow(guarded, createDetachedWindow(QCursor::pos(), false));
+        })->setEnabled(m_tabs->count() > 1 || !m_detached);
+        for (QWidget *w : QApplication::topLevelWidgets()) {
+            auto *other = qobject_cast<MainWindow *>(w);
+            if (!other || other == this || !other->isVisible())
+                continue;
+            QPointer<MainWindow> target(other);
+            menu->addAction(tr("Mover a la ventana «%1»").arg(other->windowTitle()), this, [this, guarded, target] {
+                if (guarded && target)
+                    moveTabToWindow(guarded, target);
+            });
+        }
+        if (tab->isUntitled())
             return;
         const QString path = tab->filePath();
         menu->addSeparator();
@@ -416,6 +435,7 @@ QWidget *MainWindow::createEditorPage()
         updateWindowTitle();
         updateStatus();
     });
+    m_tabs->tabBar()->installEventFilter(this);
     // Doble clic en la zona vacía de la barra de pestañas: archivo nuevo
     connect(m_tabs->tabBar(), &QTabBar::tabBarDoubleClicked, this, [this](int index) {
         if (index < 0)
@@ -733,10 +753,20 @@ CodeEditor *MainWindow::currentEditor() const
 EditorTab *MainWindow::newTab()
 {
     auto *tab = new EditorTab(EditorTab::Kind::File, m_tabs);
-    connect(tab->editor(), &CodeEditor::fontSizeStepRequested, this, &MainWindow::changeFontSize);
     tab->setUntitledIndex(++m_untitledCounter);
     applyEditorSettings(tab);
+    attachTab(tab);
 
+    const int index = m_tabs->addTab(tab, tab->displayName());
+    m_tabs->setCurrentIndex(index);
+    updateTabTitle(tab);
+    tab->editor()->setFocus();
+    return tab;
+}
+
+void MainWindow::attachTab(EditorTab *tab)
+{
+    connect(tab->editor(), &CodeEditor::fontSizeStepRequested, this, &MainWindow::changeFontSize);
     connect(tab, &EditorTab::titleChanged, this, [this, tab] {
         updateTabTitle(tab);
         updateWindowTitle();
@@ -747,12 +777,109 @@ EditorTab *MainWindow::newTab()
         if (tab == currentTab())
             updateStatus();
     });
+}
 
+MainWindow *MainWindow::createDetachedWindow(const QPoint &globalPos, bool placeAtCursor)
+{
+    auto *window = new MainWindow;
+    window->m_detached = true;
+    window->setAttribute(Qt::WA_DeleteOnClose);
+    window->resize(size());
+    if (placeAtCursor)
+        window->move(globalPos - QPoint(120, 20));
+    else
+        window->move(pos() + QPoint(40, 40));
+    window->show();
+    return window;
+}
+
+void MainWindow::moveTabToWindow(EditorTab *tab, MainWindow *target)
+{
+    const int index = m_tabs->indexOf(tab);
+    if (index < 0 || !target || target == this)
+        return;
+    tab->disconnect(this);
+    tab->editor()->disconnect(this);
+    m_tabs->removeTab(index);
+    target->receiveTab(tab);
+    updateWindowTitle();
+    updateStatus();
+    syncWatchedFiles();
+    // Una ventana secundaria sin pestañas ya no sirve para nada, como en Sublime Text
+    if (m_detached && m_tabs->count() == 0)
+        QTimer::singleShot(0, this, &QWidget::close);
+}
+
+void MainWindow::receiveTab(EditorTab *tab)
+{
+    // Una pestaña "sin título" vacía y sin cambios se sustituye por la que llega
+    if (m_tabs->count() == 1) {
+        EditorTab *only = tabAt(0);
+        if (only && only != tab && only->isUntitled() && !only->isModified() && only->editor()->document()->isEmpty()) {
+            m_tabs->removeTab(0);
+            only->deleteLater();
+        }
+    }
+    applyEditorSettings(tab);
+    attachTab(tab);
     const int index = m_tabs->addTab(tab, tab->displayName());
     m_tabs->setCurrentIndex(index);
     updateTabTitle(tab);
+    updateWindowTitle();
+    updateStatus();
+    syncWatchedFiles();
+    setMode(ModeSwitch::Editor);
+    raise();
+    activateWindow();
     tab->editor()->setFocus();
-    return tab;
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched != m_tabs->tabBar())
+        return QMainWindow::eventFilter(watched, event);
+    QTabBar *bar = m_tabs->tabBar();
+    if (event->type() == QEvent::MouseButtonPress) {
+        const auto *me = static_cast<QMouseEvent *>(event);
+        m_dragTab = nullptr;
+        if (me->button() == Qt::LeftButton) {
+            EditorTab *tab = tabAt(bar->tabAt(me->position().toPoint()));
+            if (tab && tab->kind() == EditorTab::Kind::File) {
+                m_dragTab = tab;
+                m_dragStart = me->position().toPoint();
+            }
+        }
+    } else if (event->type() == QEvent::MouseMove && m_dragTab) {
+        // Fuera de la ventana, el cursor indica que al soltar se saca la pestaña
+        const auto *me = static_cast<QMouseEvent *>(event);
+        const QPoint inWindow = mapFromGlobal(me->globalPosition().toPoint());
+        bar->setCursor(rect().contains(inWindow) ? Qt::ArrowCursor : Qt::DragMoveCursor);
+    } else if (event->type() == QEvent::MouseButtonRelease && m_dragTab) {
+        const auto *me = static_cast<QMouseEvent *>(event);
+        bar->unsetCursor();
+        QPointer<EditorTab> tab = std::exchange(m_dragTab, nullptr);
+        const QPoint global = me->globalPosition().toPoint();
+        const QPoint inWindow = mapFromGlobal(global);
+        const bool farEnough = (me->position().toPoint() - m_dragStart).manhattanLength() > 40;
+        if (me->button() == Qt::LeftButton && farEnough && !rect().contains(inWindow)) {
+            // Se suelta fuera: a otra ventana de BatCode si hay una debajo, si no a una nueva.
+            // QTabBar termina antes su propio arrastre, por eso se hace después del evento.
+            QTimer::singleShot(0, this, [this, tab, global] {
+                if (!tab || m_tabs->indexOf(tab) < 0)
+                    return;
+                auto *target = qobject_cast<MainWindow *>(QApplication::topLevelAt(global));
+                if (!target || target == this) {
+                    if (m_tabs->count() == 1 && m_detached) {
+                        move(global - QPoint(120, 20));   // ya está sola: se mueve la ventana entera
+                        return;
+                    }
+                    target = createDetachedWindow(global, true);
+                }
+                moveTabToWindow(tab, target);
+            });
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
 }
 
 void MainWindow::updateTabTitle(EditorTab *tab)
@@ -1180,7 +1307,8 @@ void MainWindow::closeEvent(QCloseEvent *event)
             return;
         }
     }
-    saveSession();
+    if (!m_detached)
+        saveSession();
     event->accept();
 }
 

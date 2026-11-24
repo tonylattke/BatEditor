@@ -638,6 +638,8 @@ EN = {
     'No se pudo crear un archivo temporal': 'Could not create a temporary file',
     'git apply no terminó a tiempo': 'git apply did not finish in time',
     'git apply falló (código %1)': 'git apply failed (code %1)',
+    'Mover a una ventana nueva': 'Move to New Window',
+    'Mover a la ventana «%1»': 'Move to Window "%1"',
 }
 
 # Tabla de atajos (HTML): se traduce por frases
