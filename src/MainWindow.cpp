@@ -29,6 +29,8 @@
 #include <QLineEdit>
 #include <QMimeData>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPainterPath>
 #include <QTimer>
 #include <QCursor>
 #include <QMenu>
@@ -73,6 +75,57 @@ QAction *addMenuAction(QMenu *menu, const QString &text, const QKeySequence &sho
     QObject::connect(action, &QAction::triggered, context, std::forward<Func>(func));
     return action;
 }
+
+// Ventana semitransparente que sigue al cursor mientras se saca una pestaña:
+// muestra cómo quedará la ventana nueva (título y contenido de la pestaña).
+class TabDragPreview : public QWidget
+{
+public:
+    TabDragPreview(const QString &title, const QPixmap &content, const QSize &windowSize)
+        : QWidget(nullptr, Qt::ToolTip | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint)
+        , m_title(title)
+    {
+        setAttribute(Qt::WA_TranslucentBackground);
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setAttribute(Qt::WA_ShowWithoutActivating);
+        setWindowOpacity(0.75);
+        // Un tercio de la ventana original, sin pasar de 520 px de ancho
+        const qreal scale = qMin(0.35, 520.0 / qMax(1, windowSize.width()));
+        const QSize body = (QSizeF(windowSize) * scale).toSize().expandedTo(QSize(220, 120));
+        m_content = content.scaled(body, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+        setFixedSize(body.width(), body.height() + kTitleHeight);
+    }
+
+    // El cursor queda sobre la barra de título, como si se arrastrara la ventana por ella
+    void follow(const QPoint &globalPos) { move(globalPos - QPoint(width() / 3, kTitleHeight / 2)); }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        const Theme::Colors &c = Theme::colors();
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        const QRectF frame = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+        QPainterPath clip;
+        clip.addRoundedRect(frame, 6, 6);
+        p.setClipPath(clip);
+        p.fillRect(rect(), c.background);
+        p.drawPixmap(QPoint(0, kTitleHeight), m_content,
+                     QRect(0, 0, width(), height() - kTitleHeight));
+        p.fillRect(QRect(0, 0, width(), kTitleHeight), c.panel);
+        p.setPen(c.foreground);
+        p.drawText(QRect(10, 0, width() - 20, kTitleHeight), Qt::AlignVCenter | Qt::AlignLeft,
+                   p.fontMetrics().elidedText(m_title, Qt::ElideMiddle, width() - 20));
+        p.setClipping(false);
+        p.setPen(QPen(c.accent, 1.5));
+        p.drawRoundedRect(frame, 6, 6);
+    }
+
+private:
+    static constexpr int kTitleHeight = 24;
+    QString m_title;
+    QPixmap m_content;
+};
 
 } // namespace
 
@@ -834,6 +887,30 @@ void MainWindow::receiveTab(EditorTab *tab)
     tab->editor()->setFocus();
 }
 
+void MainWindow::updateDragPreview(const QPoint &globalPos, bool outside)
+{
+    if (!outside || !m_dragTab) {
+        if (m_dragPreview)
+            m_dragPreview->hide();
+        return;
+    }
+    if (!m_dragPreview) {
+        const QString title = m_dragTab->isUntitled() ? m_dragTab->displayName()
+                                                      : QDir::toNativeSeparators(m_dragTab->filePath());
+        m_dragPreview = new TabDragPreview(title + QStringLiteral(" — BatCode"), m_dragTab->grab(), size());
+    }
+    static_cast<TabDragPreview *>(m_dragPreview.data())->follow(globalPos);
+    if (!m_dragPreview->isVisible())
+        m_dragPreview->show();
+}
+
+void MainWindow::hideDragPreview()
+{
+    if (m_dragPreview)
+        m_dragPreview->deleteLater();
+    m_dragPreview = nullptr;
+}
+
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched != m_tabs->tabBar())
@@ -850,13 +927,16 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
             }
         }
     } else if (event->type() == QEvent::MouseMove && m_dragTab) {
-        // Fuera de la ventana, el cursor indica que al soltar se saca la pestaña
+        // Fuera de la ventana: cursor de arrastre y vista previa de la ventana nueva
         const auto *me = static_cast<QMouseEvent *>(event);
-        const QPoint inWindow = mapFromGlobal(me->globalPosition().toPoint());
-        bar->setCursor(rect().contains(inWindow) ? Qt::ArrowCursor : Qt::DragMoveCursor);
+        const QPoint global = me->globalPosition().toPoint();
+        const bool outside = !rect().contains(mapFromGlobal(global));
+        bar->setCursor(outside ? Qt::DragMoveCursor : Qt::ArrowCursor);
+        updateDragPreview(global, outside);
     } else if (event->type() == QEvent::MouseButtonRelease && m_dragTab) {
         const auto *me = static_cast<QMouseEvent *>(event);
         bar->unsetCursor();
+        hideDragPreview();
         QPointer<EditorTab> tab = std::exchange(m_dragTab, nullptr);
         const QPoint global = me->globalPosition().toPoint();
         const QPoint inWindow = mapFromGlobal(global);

@@ -138,4 +138,7 @@ private:
     bool m_detached = false;
     QPointer<EditorTab> m_dragTab;   // pestaña pulsada en la barra (posible arrastre fuera)
     QPoint m_dragStart;
+    QPointer<QWidget> m_dragPreview; // ventana semitransparente mientras se arrastra fuera
+    void updateDragPreview(const QPoint &globalPos, bool outside);
+    void hideDragPreview();
 };
