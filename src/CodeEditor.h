@@ -8,6 +8,7 @@
 #include <functional>
 
 class LineNumberArea;
+class QListWidget;
 class Minimap;
 
 // Editor de código con:
@@ -29,6 +30,17 @@ public:
     // closeTags cierra etiquetas HTML/XML al escribir '>'
     void setAutoPairs(const QString &pairs, bool closeTags);
     void setAutoCloseEnabled(bool enabled) { m_autoClose = enabled; }
+
+    // --- Autocompletado de palabras ---
+    // Fuente externa (índice del proyecto): palabras que empiezan por el prefijo
+    using CompletionSource = std::function<QStringList(const QString &prefix)>;
+    void setCompletionSource(CompletionSource source) { m_completionSource = std::move(source); }
+    void setCompletionKeywords(const QStringList &keywords) { m_completionKeywords = keywords; }
+    void setWordCompletionEnabled(bool enabled);
+    bool isCompletionVisible() const;
+    QStringList completionItems() const;    // lo que muestra la lista (para pruebas)
+    int completionIndex() const;
+    void hideCompletion();
     bool autoCloseEnabled() const { return m_autoClose; }
     void setShowLineNumbers(bool show);
     void setShowMinimap(bool show);                 // miniatura del archivo a la derecha
@@ -86,6 +98,7 @@ protected:
     void keyPressEvent(QKeyEvent *e) override;
     void mousePressEvent(QMouseEvent *e) override;
     void wheelEvent(QWheelEvent *e) override;
+    void focusOutEvent(QFocusEvent *e) override;
     void paintEvent(QPaintEvent *e) override;
     void resizeEvent(QResizeEvent *e) override;
     void changeEvent(QEvent *e) override;
@@ -95,6 +108,12 @@ private:
 
     bool isEditorCommand(QKeyEvent *e) const;
     bool handleEditorCommand(QKeyEvent *e);
+    void handleKeyPress(QKeyEvent *e);
+    bool handleCompletionKey(QKeyEvent *e);
+    void updateCompletion();
+    void acceptCompletion();
+    QString completionPrefix() const;
+    QStringList documentWords() const;
     bool handleMultiCursorKey(QKeyEvent *e);
 
     void applyToAllCursors(const CursorOp &op);
@@ -133,5 +152,12 @@ private:
     QString m_autoPairs = QStringLiteral("()[]{}\"\"''");
     bool m_autoCloseTags = false;
     bool m_autoClose = true;
+
+    QListWidget *m_completion = nullptr;
+    CompletionSource m_completionSource;
+    QStringList m_completionKeywords;
+    bool m_wordCompletion = true;
+    mutable int m_docWordsRevision = -1;
+    mutable QStringList m_docWords;       // palabras del propio documento (caché por revisión)
     int m_zoomWheelDelta = 0;   // giro acumulado de Ctrl+rueda (touchpads envían pasos pequeños)
 };

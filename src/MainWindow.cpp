@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "WordIndex.h"
 
 #include "CodeEditor.h"
 #include "EditorTab.h"
@@ -283,6 +284,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_showLineNumbers = settings.value(QStringLiteral("editor/lineNumbers"), true).toBool();
     m_showMinimap = settings.value(QStringLiteral("editor/minimap"), true).toBool();
     m_autoClose = settings.value(QStringLiteral("editor/autoClose"), true).toBool();
+    m_wordCompletion = settings.value(QStringLiteral("editor/wordCompletion"), true).toBool();
+    m_wordIndex = new WordIndex(this);
 
     m_git = new GitWorkspace(this);
     connect(m_git, &GitWorkspace::openFileRequested, this, [this](const QString &p) {
@@ -836,6 +839,8 @@ EditorTab *MainWindow::newTab()
 
 void MainWindow::attachTab(EditorTab *tab)
 {
+    tab->editor()->setCompletionSource([this](const QString &prefix) { return m_wordIndex->wordsWithPrefix(prefix); });
+    tab->editor()->setWordCompletionEnabled(m_wordCompletion);
     connect(tab->editor(), &CodeEditor::fontSizeStepRequested, this, &MainWindow::changeFontSize);
     connect(tab, &EditorTab::titleChanged, this, [this, tab] {
         updateTabTitle(tab);
@@ -1106,6 +1111,7 @@ void MainWindow::openFolder(const QString &path)
     if (!QFileInfo(absolute).isDir())
         return;
     m_rootPath = absolute;
+    m_wordIndex->setFolder(absolute);   // palabras del proyecto para el autocompletado (en segundo plano)
 
     // La carpeta se muestra como nodo raíz dentro de su carpeta contenedora
     QDir parentDir(absolute);
@@ -1148,6 +1154,8 @@ bool MainWindow::closeTab(int index)
     if (!maybeSave(tab))
         return false;
     m_tabs->removeTab(index);
+    if (tab->kind() == EditorTab::Kind::File)
+        m_wordIndex->addText(tab->editor()->toPlainText());   // sus palabras siguen disponibles
     tab->deleteLater();
     updateWindowTitle();
     updateStatus();
@@ -1329,6 +1337,7 @@ void MainWindow::showShortcuts()
 <tr><td><b>Ctrl+/</b></td><td>Comentar / descomentar</td></tr>
 <tr><td><b>Ctrl+rueda del ratón</b></td><td>Aumentar / reducir el tamaño de la fuente</td></tr>
 <tr><td><b>Ctrl+Tab / Ctrl+RePág</b></td><td>Pestaña siguiente / anterior (en el modo Git, entre repositorios)</td></tr>
+<tr><td><b>Tab / Shift+Tab, Enter</b></td><td>En la lista de autocompletado: siguiente / anterior, aceptar (Esc la cierra)</td></tr>
 <tr><td><b>Ctrl+Shift+D</b></td><td>Duplicar líneas</td></tr>
 <tr><td><b>Ctrl+Shift+↑ / ↓</b></td><td>Mover la línea o las líneas seleccionadas arriba / abajo</td></tr>
 <tr><td><b>Tab / Shift+Tab</b></td><td>Sangrar / quitar sangría</td></tr>
@@ -1423,6 +1432,7 @@ void MainWindow::applyEditorSettings(EditorTab *only)
         e->setShowLineNumbers(m_showLineNumbers);
         e->setShowMinimap(m_showMinimap);
         e->setAutoCloseEnabled(m_autoClose);
+        e->setWordCompletionEnabled(m_wordCompletion);
         e->setLineWrapMode(m_wordWrap ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
     };
     if (only) {
@@ -1454,6 +1464,7 @@ void MainWindow::showPreferences()
     current.lineNumbers = m_showLineNumbers;
     current.minimap = m_showMinimap;
     current.autoClose = m_autoClose;
+    current.wordCompletion = m_wordCompletion;
     current.pullCommand = settings.value(QStringLiteral("git/pullCommand"), QStringLiteral("pull")).toString();
     current.pushCommand = settings.value(QStringLiteral("git/pushCommand"), QStringLiteral("push")).toString();
 
@@ -1468,6 +1479,7 @@ void MainWindow::showPreferences()
     m_showLineNumbers = v.lineNumbers;
     m_showMinimap = v.minimap;
     m_autoClose = v.autoClose;
+    m_wordCompletion = v.wordCompletion;
     applyEditorSettings();
     settings.setValue(QStringLiteral("editor/pointSize"), m_fontSize);
     settings.setValue(QStringLiteral("editor/indentWidth"), m_indentWidth);
@@ -1475,6 +1487,7 @@ void MainWindow::showPreferences()
     settings.setValue(QStringLiteral("editor/lineNumbers"), m_showLineNumbers);
     settings.setValue(QStringLiteral("editor/minimap"), m_showMinimap);
     settings.setValue(QStringLiteral("editor/autoClose"), m_autoClose);
+    settings.setValue(QStringLiteral("editor/wordCompletion"), m_wordCompletion);
     settings.setValue(QStringLiteral("git/pullCommand"), v.pullCommand);
     settings.setValue(QStringLiteral("git/pushCommand"), v.pushCommand);
     m_git->refreshCurrent(); // actualiza los textos de ayuda de los botones Pull/Push

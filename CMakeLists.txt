@@ -74,6 +74,7 @@ set(BATCODE_SOURCES
     src/DiffHighlighter.h      src/DiffHighlighter.cpp
     src/CodeEditor.h           src/CodeEditor.cpp
     src/Minimap.h              src/Minimap.cpp
+    src/WordIndex.h            src/WordIndex.cpp
     src/EditorTab.h            src/EditorTab.cpp
     src/FindBar.h              src/FindBar.cpp
     src/QuickOpenDialog.h      src/QuickOpenDialog.cpp

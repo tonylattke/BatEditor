@@ -402,6 +402,7 @@ void EditorTab::applyLanguage(const QString &firstLine)
             sh->setLanguage(lang);
         m_editor->setLineCommentToken(lang.lineComment.isEmpty() ? QStringLiteral("#") : lang.lineComment);
         m_editor->setAutoPairs(autoPairsFor(lang), lang.name == QLatin1String("HTML / XML"));
+        m_editor->setCompletionKeywords(lang.keywords + lang.types + lang.constants);
     }
     updatePreviewButton();
 }

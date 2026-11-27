@@ -644,10 +644,13 @@ EN = {
     'Abre una terminal en la carpeta del repositorio': 'Opens a terminal in the repository folder',
     'Cambiar de modo (Editor / Git)': 'Switch Mode (Editor / Git)',
     'Cerrar automáticamente paréntesis, comillas y etiquetas': 'Auto-close brackets, quotes and tags',
+    'Sugerir palabras del proyecto al escribir': 'Suggest project words while typing',
 }
 
 # Tabla de atajos (HTML): se traduce por frases
 SHORTCUT_PHRASES = [
+    ('Tab / Shift+Tab, Enter', 'Tab / Shift+Tab, Enter'),
+    ('En la lista de autocompletado: siguiente / anterior, aceptar (Esc la cierra)', 'In the completion list: next / previous, accept (Esc closes it)'),
     ('Cambiar entre modo editor y modo Git', 'Switch between editor mode and Git mode'),
     ('Pestaña siguiente / anterior (en el modo Git, entre repositorios)', 'Next / previous tab (in Git mode, between repositories)'),
     ('Ctrl+rueda del ratón', 'Ctrl+mouse wheel'),

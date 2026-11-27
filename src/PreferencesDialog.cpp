@@ -70,12 +70,15 @@ PreferencesDialog::PreferencesDialog(const Values &values, QWidget *parent)
     m_minimap->setChecked(values.minimap);
     m_autoClose = new QCheckBox(tr("Cerrar automáticamente paréntesis, comillas y etiquetas"), editorBox);
     m_autoClose->setChecked(values.autoClose);
+    m_wordCompletion = new QCheckBox(tr("Sugerir palabras del proyecto al escribir"), editorBox);
+    m_wordCompletion->setChecked(values.wordCompletion);
     editor->addRow(tr("Tamaño de fuente"), m_fontSize);
     editor->addRow(tr("Sangría"), m_indent);
     editor->addRow(QString(), m_wordWrap);
     editor->addRow(QString(), m_lineNumbers);
     editor->addRow(QString(), m_minimap);
     editor->addRow(QString(), m_autoClose);
+    editor->addRow(QString(), m_wordCompletion);
 
     // --- Git ---
     QFormLayout *git = nullptr;
@@ -114,6 +117,7 @@ PreferencesDialog::Values PreferencesDialog::values() const
     v.lineNumbers = m_lineNumbers->isChecked();
     v.minimap = m_minimap->isChecked();
     v.autoClose = m_autoClose->isChecked();
+    v.wordCompletion = m_wordCompletion->isChecked();
     v.pullCommand = m_pull->currentData().toString();
     v.pushCommand = m_push->currentData().toString();
     return v;

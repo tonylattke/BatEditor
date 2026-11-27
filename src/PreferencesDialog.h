@@ -21,6 +21,7 @@ public:
         bool lineNumbers = true;
         bool minimap = true;
         bool autoClose = true;
+        bool wordCompletion = true;
         QString pullCommand = QStringLiteral("pull");
         QString pushCommand = QStringLiteral("push");
     };
@@ -36,6 +37,7 @@ private:
     QCheckBox *m_lineNumbers;
     QCheckBox *m_minimap;
     QCheckBox *m_autoClose;
+    QCheckBox *m_wordCompletion;
     QComboBox *m_pull;
     QComboBox *m_push;
 };

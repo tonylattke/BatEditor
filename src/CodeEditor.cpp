@@ -7,6 +7,9 @@
 #include <QClipboard>
 #include <QKeyEvent>
 #include <QPainter>
+#include <QFocusEvent>
+#include <QSet>
+#include <QListWidget>
 #include <QRegularExpression>
 #include <QWheelEvent>
 #include <QScrollBar>
@@ -25,7 +28,7 @@ public:
     QSize sizeHint() const override { return {m_editor->lineNumberAreaWidth(), 0}; }
 
 protected:
-    void paintEvent(QPaintEvent *event) override { m_editor->lineNumberAreaPaintEvent(event);}
+    void paintEvent(QPaintEvent *event) override { m_editor->lineNumberAreaPaintEvent(event); }
 
 private:
     CodeEditor *m_editor;
@@ -936,6 +939,14 @@ bool CodeEditor::event(QEvent *e)
     // Reclama los atajos propios antes de que los capture una QAction del menú
     if (e->type() == QEvent::ShortcutOverride) {
         auto *ke = static_cast<QKeyEvent *>(e);
+        if (isCompletionVisible()
+            && (ke->key() == Qt::Key_Tab || ke->key() == Qt::Key_Backtab || ke->key() == Qt::Key_Escape
+                || ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter || ke->key() == Qt::Key_Up
+                || ke->key() == Qt::Key_Down)
+            && !(ke->modifiers() & (Qt::ControlModifier | Qt::AltModifier))) {
+            e->accept();
+            return true;
+        }
         if (isEditorCommand(ke)) {
             e->accept();
             return true;
@@ -944,7 +955,7 @@ bool CodeEditor::event(QEvent *e)
     return QPlainTextEdit::event(e);
 }
 
-void CodeEditor::keyPressEvent(QKeyEvent *e)
+void CodeEditor::handleKeyPress(QKeyEvent *e)
 {
     if (handleEditorCommand(e))
         return;
@@ -1107,6 +1118,7 @@ bool CodeEditor::handleMultiCursorKey(QKeyEvent *e)
 
 void CodeEditor::mousePressEvent(QMouseEvent *e)
 {
+    hideCompletion();
     if (e->button() == Qt::LeftButton && (e->modifiers() & Qt::ControlModifier)
         && !(e->modifiers() & Qt::ShiftModifier)) {
         // Ctrl+clic: añade (o quita) un cursor
@@ -1402,4 +1414,255 @@ void CodeEditor::closeHtmlTag(QTextCursor &c) const
     const int pos = c.position();
     c.insertText(QStringLiteral("</%1>").arg(tag));
     c.setPosition(pos);
+}
+
+// ---------------------------------------------------------------------------
+// Autocompletado de palabras: lista bajo el cursor con las palabras del
+// proyecto, del documento y del lenguaje que empiezan por lo escrito
+// ---------------------------------------------------------------------------
+namespace {
+bool isCompletionChar(QChar c)
+{
+    return c.isLetterOrNumber() || c == QLatin1Char('_');
+}
+} // namespace
+
+void CodeEditor::setWordCompletionEnabled(bool enabled)
+{
+    m_wordCompletion = enabled;
+    if (!enabled)
+        hideCompletion();
+}
+
+bool CodeEditor::isCompletionVisible() const
+{
+    return m_completion && m_completion->isVisible();
+}
+
+QStringList CodeEditor::completionItems() const
+{
+    QStringList out;
+    if (m_completion)
+        for (int i = 0; i < m_completion->count(); ++i)
+            out << m_completion->item(i)->text();
+    return out;
+}
+
+int CodeEditor::completionIndex() const
+{
+    return m_completion ? m_completion->currentRow() : -1;
+}
+
+void CodeEditor::hideCompletion()
+{
+    if (m_completion)
+        m_completion->hide();
+}
+
+void CodeEditor::focusOutEvent(QFocusEvent *e)
+{
+    hideCompletion();
+    QPlainTextEdit::focusOutEvent(e);
+}
+
+// Parte de palabra justo antes del cursor ("m_ed|")
+QString CodeEditor::completionPrefix() const
+{
+    const QTextCursor c = textCursor();
+    const QString before = c.block().text().left(c.positionInBlock());
+    int start = before.size();
+    while (start > 0 && isCompletionChar(before.at(start - 1)))
+        --start;
+    const QString prefix = before.mid(start);
+    // Un número no es el principio de una palabra
+    if (!prefix.isEmpty() && prefix.at(0).isDigit())
+        return QString();
+    return prefix;
+}
+
+QStringList CodeEditor::documentWords() const
+{
+    if (m_docWordsRevision != document()->revision()) {
+        static const QRegularExpression word(QStringLiteral("[\\p{L}_][\\p{L}\\p{N}_]{2,}"));
+        QSet<QString> set;
+        auto it = word.globalMatch(toPlainText());
+        while (it.hasNext())
+            set.insert(it.next().captured(0));
+        m_docWords = QStringList(set.begin(), set.end());
+        m_docWordsRevision = document()->revision();
+    }
+    return m_docWords;
+}
+
+void CodeEditor::updateCompletion()
+{
+    if (!m_wordCompletion || isReadOnly() || !m_extraCursors.isEmpty() || textCursor().hasSelection()) {
+        hideCompletion();
+        return;
+    }
+    const QString prefix = completionPrefix();
+    if (prefix.size() < 2) {
+        hideCompletion();
+        return;
+    }
+    // La palabra que se está escribiendo (con lo que haya pegado detrás) no se sugiere a sí misma
+    const QTextCursor cur = textCursor();
+    const QString line = cur.block().text();
+    int end = cur.positionInBlock();
+    while (end < line.size() && isCompletionChar(line.at(end)))
+        ++end;
+    const QString current = line.mid(cur.positionInBlock() - prefix.size(), end - (cur.positionInBlock() - prefix.size()));
+
+    QSet<QString> seen;
+    QStringList items;
+    auto add = [&](const QStringList &words) {
+        for (const QString &w : words)
+            if (w.size() > prefix.size() && w != current && w.startsWith(prefix, Qt::CaseInsensitive)
+                && !seen.contains(w)) {
+                seen.insert(w);
+                items << w;
+            }
+    };
+    if (m_completionSource)
+        add(m_completionSource(prefix));
+    // Si el documento tiene la palabra solo una vez y es la que se escribe, no cuenta
+    QStringList docWords = documentWords();
+    add(docWords);
+    add(m_completionKeywords);
+    if (items.isEmpty()) {
+        hideCompletion();
+        return;
+    }
+    // Orden alfabético (sin distinguir mayúsculas; a igualdad, la mayúscula primero)
+    std::sort(items.begin(), items.end(), [](const QString &a, const QString &b) {
+        const int c = QString::compare(a, b, Qt::CaseInsensitive);
+        return c != 0 ? c < 0 : a < b;
+    });
+    if (items.size() > 200)
+        items = items.mid(0, 200);
+
+    if (!m_completion) {
+        m_completion = new QListWidget(this);
+        m_completion->setFocusPolicy(Qt::NoFocus);
+        m_completion->setUniformItemSizes(true);
+        m_completion->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        m_completion->setSelectionMode(QAbstractItemView::SingleSelection);
+        const Theme::Colors &col = Theme::colors();
+        m_completion->setStyleSheet(QStringLiteral(
+            "QListWidget { background:%1; color:%2; border:1px solid %3; outline:0; }"
+            "QListWidget::item { padding:2px 8px; }"
+            "QListWidget::item:selected { background:%4; color:%2; }")
+                                        .arg(col.backgroundAlt.name(), col.foreground.name(), col.border.name(),
+                                             col.selection.name()));
+        connect(m_completion, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) {
+            m_completion->setCurrentItem(item);
+            acceptCompletion();
+        });
+    }
+    const QString selected = m_completion->isVisible() && m_completion->currentItem()
+        ? m_completion->currentItem()->text()
+        : QString();
+    m_completion->clear();
+    m_completion->addItems(items);
+    const int keep = items.indexOf(selected);
+    m_completion->setCurrentRow(keep >= 0 ? keep : 0);
+    m_completion->setFont(font());
+
+    // Tamaño y posición: debajo de la palabra (o encima si no cabe)
+    const QFontMetrics fm(font());
+    int widest = 0;
+    for (const QString &w : std::as_const(items))
+        widest = qMax(widest, fm.horizontalAdvance(w));
+    const int rowHeight = qMax(m_completion->sizeHintForRow(0), fm.height() + 4);
+    const int rows = qMin(int(items.size()), 10);
+    const int w = qBound(120, widest + 40, 480);
+    const int h = rows * rowHeight + 4;
+    QTextCursor startCursor = cur;
+    startCursor.setPosition(cur.position() - prefix.size());
+    const QRect r = cursorRect(startCursor).translated(viewport()->pos());
+    int x = qMin(r.left(), width() - w - 2);
+    int y = r.bottom() + 2;
+    if (y + h > height() && r.top() - h - 2 >= 0)
+        y = r.top() - h - 2;
+    m_completion->setGeometry(qMax(0, x), y, w, h);
+    m_completion->show();
+    m_completion->raise();
+    m_completion->scrollToItem(m_completion->currentItem());
+}
+
+void CodeEditor::acceptCompletion()
+{
+    if (!isCompletionVisible() || !m_completion->currentItem())
+        return;
+    const QString word = m_completion->currentItem()->text();
+    const QString prefix = completionPrefix();
+    QTextCursor c = textCursor();
+    c.beginEditBlock();
+    c.movePosition(QTextCursor::Left, QTextCursor::KeepAnchor, int(prefix.size()));
+    c.insertText(word);
+    c.endEditBlock();
+    setTextCursor(c);
+    hideCompletion();
+}
+
+// Teclas de la lista: Tab / ↓ siguiente, Shift+Tab / ↑ anterior, Enter acepta, Esc cierra
+bool CodeEditor::handleCompletionKey(QKeyEvent *e)
+{
+    if (!isCompletionVisible())
+        return false;
+    const auto mods = e->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier | Qt::AltModifier);
+    const int count = m_completion->count();
+    auto step = [&](int delta) {
+        m_completion->setCurrentRow((m_completion->currentRow() + delta + count) % count);
+        m_completion->scrollToItem(m_completion->currentItem());
+    };
+    switch (e->key()) {
+    case Qt::Key_Tab:
+        if (mods == Qt::NoModifier) { step(+1); return true; }
+        break;
+    case Qt::Key_Backtab:
+        if (mods == Qt::ShiftModifier || mods == Qt::NoModifier) { step(-1); return true; }
+        break;
+    case Qt::Key_Down:
+        if (mods == Qt::NoModifier) { step(+1); return true; }
+        break;
+    case Qt::Key_Up:
+        if (mods == Qt::NoModifier) { step(-1); return true; }
+        break;
+    case Qt::Key_PageDown:
+        if (mods == Qt::NoModifier) { m_completion->setCurrentRow(qMin(count - 1, m_completion->currentRow() + 9)); return true; }
+        break;
+    case Qt::Key_PageUp:
+        if (mods == Qt::NoModifier) { m_completion->setCurrentRow(qMax(0, m_completion->currentRow() - 9)); return true; }
+        break;
+    case Qt::Key_Return:
+    case Qt::Key_Enter:
+        if (mods == Qt::NoModifier) { acceptCompletion(); return true; }
+        break;
+    case Qt::Key_Escape:
+        hideCompletion();
+        return true;
+    default:
+        break;
+    }
+    return false;
+}
+
+void CodeEditor::keyPressEvent(QKeyEvent *e)
+{
+    if (handleCompletionKey(e))
+        return;
+    const bool wasVisible = isCompletionVisible();
+    handleKeyPress(e);
+
+    // Tras escribir una letra (o borrar con la lista abierta) se actualiza la lista; cualquier otra tecla la cierra
+    const QString text = e->text();
+    const bool plainCtrl = (e->modifiers() & Qt::ControlModifier) && !(e->modifiers() & Qt::AltModifier);
+    const bool typedWordChar = !plainCtrl && text.size() == 1 && isCompletionChar(text.at(0));
+    const bool erased = (e->key() == Qt::Key_Backspace || e->key() == Qt::Key_Delete) && wasVisible;
+    if (typedWordChar || erased)
+        updateCompletion();
+    else if (!(e->key() == Qt::Key_Shift || e->key() == Qt::Key_Control || e->key() == Qt::Key_Alt
+               || e->key() == Qt::Key_AltGr || e->key() == Qt::Key_Meta))
+        hideCompletion();
 }

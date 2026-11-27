@@ -119,6 +119,11 @@ archivos abiertos.
   delante, se salta; `Backspace` entre una pareja vacía borra las dos; `Enter` entre `{}` deja el
   cursor en una línea sangrada. En HTML/XML, al escribir `>` de `<div>` se añade `</div>`.
   Se desactiva en Archivo › Preferencias.
+- **Autocompletado de palabras**: al escribir 2 caracteres o más aparece una lista, en orden
+  alfabético, con las palabras del proyecto abierto (se indexa en segundo plano), del archivo y del
+  lenguaje que empiezan por lo escrito (`m_` → `m_boton`, `m_editor`, `m_menu`). Se actualiza con cada
+  letra; `Tab` / `↓` pasan a la siguiente, `Shift+Tab` / `↑` a la anterior, `Enter` (o clic) la
+  inserta y `Esc` la cierra. Se desactiva en Archivo › Preferencias.
 - `Ctrl+P`: ir a archivo con búsqueda difusa. `Ctrl+G`: ir a línea.
 - Barra de estado con línea y columna, número de cursores, sangría y lenguaje.
 - Respeta los finales de línea CRLF/LF de cada archivo y guarda de forma atómica.
@@ -317,6 +322,7 @@ src/
   EditorTab.*              Pestaña = archivo + barra de búsqueda; carga y guardado
   CodeEditor.*             Editor: números de línea, cursores múltiples, sangría, búsqueda
   Minimap.*                Minimapa del editor (vista en miniatura y navegación)
+  WordIndex.*              Índice de palabras del proyecto para el autocompletado
   FindBar.*                Barra de buscar y reemplazar
   FindInFiles.*            Motor de "Buscar en archivos": recorrido, búsqueda, reemplazo y formato de resultados
   FindInFilesPanel.*       Panel Buscar / Donde / Reemplazar (Ctrl+Shift+F)

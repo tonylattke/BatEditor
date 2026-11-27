@@ -125,6 +125,8 @@ private:
     bool m_showLineNumbers = true;
     bool m_showMinimap = true;
     bool m_autoClose = true;   // cerrar (), [], {}, comillas y etiquetas al escribir
+    bool m_wordCompletion = true;   // lista de palabras del proyecto al escribir
+    class WordIndex *m_wordIndex = nullptr;
     QAction *m_minimapAction = nullptr;
     QAction *m_wrapAction = nullptr;
     FindInFilesPanel *m_findPanel = nullptr;
