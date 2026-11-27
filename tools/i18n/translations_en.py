@@ -132,9 +132,9 @@ EN = {
 "El idioma se aplicará al reiniciar BatCode.\n\n¿Reiniciar ahora? Se conservan las carpetas, los archivos y los repositorios abiertos.":
     "The language will change when BatCode restarts.\n\nRestart now? Open folders, files and repositories are kept.",
 "✎  Editor": "✎  Editor",
-"Modo editor de texto (Ctrl+Shift+E)": "Text editor mode (Ctrl+Shift+E)",
+"Modo editor de texto (Ctrl+Shift+Tab)": "Text editor mode (Ctrl+Shift+Tab)",
 "⎇  Git": "⎇  Git",
-"Modo Git (Ctrl+Shift+G)": "Git mode (Ctrl+Shift+G)",
+"Modo Git (Ctrl+Shift+Tab)": "Git mode (Ctrl+Shift+Tab)",
 "Preferencias": "Preferences",
 "General": "General",
 "Idioma": "Language",
@@ -642,10 +642,13 @@ EN = {
     'Mover a la ventana «%1»': 'Move to Window "%1"',
     'Abrir en terminal': 'Open in terminal',
     'Abre una terminal en la carpeta del repositorio': 'Opens a terminal in the repository folder',
+    'Cambiar de modo (Editor / Git)': 'Switch Mode (Editor / Git)',
 }
 
 # Tabla de atajos (HTML): se traduce por frases
 SHORTCUT_PHRASES = [
+    ('Cambiar entre modo editor y modo Git', 'Switch between editor mode and Git mode'),
+    ('Pestaña siguiente / anterior (en el modo Git, entre repositorios)', 'Next / previous tab (in Git mode, between repositories)'),
     ('Ctrl+rueda del ratón', 'Ctrl+mouse wheel'),
     ('Aumentar / reducir el tamaño de la fuente', 'Increase / decrease font size'),
     ('Mover la línea o las líneas seleccionadas arriba / abajo', 'Move the line or selected lines up / down'),

@@ -13,9 +13,9 @@ ModeSwitch::ModeSwitch(QWidget *parent)
 {
     const Theme::Colors &c = Theme::colors();
     m_editor->setText(tr("✎  Editor"));
-    m_editor->setToolTip(tr("Modo editor de texto (Ctrl+Shift+E)"));
+    m_editor->setToolTip(tr("Modo editor de texto (Ctrl+Shift+Tab)"));
     m_git->setText(tr("⎇  Git"));
-    m_git->setToolTip(tr("Modo Git (Ctrl+Shift+G)"));
+    m_git->setToolTip(tr("Modo Git (Ctrl+Shift+Tab)"));
 
     auto *group = new QButtonGroup(this);
     group->setExclusive(true);

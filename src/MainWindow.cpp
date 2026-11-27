@@ -678,21 +678,36 @@ void MainWindow::createMenus()
     addMenuAction(go, tr("Ir a archivo…"), QKeySequence(Qt::CTRL | Qt::Key_P), this, &MainWindow::quickOpen);
     addMenuAction(go, tr("Ir a línea…"), QKeySequence(Qt::CTRL | Qt::Key_G), this, &MainWindow::goToLine);
     go->addSeparator();
-    addMenuAction(go, tr("Pestaña siguiente"), QKeySequence(Qt::CTRL | Qt::Key_PageDown), this, [this] {
+    // En el modo Git cambian entre los repositorios abiertos; en el editor, entre archivos.
+    // Ctrl+Tab además de Ctrl+AvPág (la anterior: Ctrl+RePág).
+    auto cycleTabs = [this](int step) {
+        if (m_modeSwitch->mode() == ModeSwitch::Git) {
+            m_git->switchRepository(step);
+            return;
+        }
         if (m_tabs->count() > 0)
-            m_tabs->setCurrentIndex((m_tabs->currentIndex() + 1) % m_tabs->count());
-    });
-    addMenuAction(go, tr("Pestaña anterior"), QKeySequence(Qt::CTRL | Qt::Key_PageUp), this, [this] {
-        if (m_tabs->count() > 0)
-            m_tabs->setCurrentIndex((m_tabs->currentIndex() - 1 + m_tabs->count()) % m_tabs->count());
-    });
+            m_tabs->setCurrentIndex(((m_tabs->currentIndex() + step) % m_tabs->count() + m_tabs->count()) % m_tabs->count());
+    };
+    QAction *nextTab = addMenuAction(go, tr("Pestaña siguiente"), QKeySequence(Qt::CTRL | Qt::Key_PageDown), this,
+                                     [cycleTabs] { cycleTabs(+1); });
+    nextTab->setShortcuts({QKeySequence(Qt::CTRL | Qt::Key_PageDown), QKeySequence(Qt::CTRL | Qt::Key_Tab)});
+    QAction *prevTab = addMenuAction(go, tr("Pestaña anterior"), QKeySequence(Qt::CTRL | Qt::Key_PageUp), this,
+                                     [cycleTabs] { cycleTabs(-1); });
+    Q_UNUSED(prevTab);   // Ctrl+Shift+Tab se usa para cambiar de modo (menú Ver)
 
     // --- Ver ----------------------------------------------------------------
     QMenu *view = menuBar()->addMenu(tr("&Ver"));
-    addMenuAction(view, tr("Modo editor"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), this,
-                    [this] { setMode(ModeSwitch::Editor); });
-    addMenuAction(view, tr("Modo Git"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_G), this,
-                    [this] { setMode(ModeSwitch::Git); });
+    // Ctrl+Shift+Tab alterna entre el modo editor y el modo Git
+    QAction *toggleMode = addMenuAction(view, tr("Cambiar de modo (Editor / Git)"),
+                                        QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Tab), this, [this] {
+                                            setMode(m_modeSwitch->mode() == ModeSwitch::Git ? ModeSwitch::Editor
+                                                                                            : ModeSwitch::Git);
+                                        });
+    // Con Shift, algunas plataformas envían la tecla como Backtab
+    toggleMode->setShortcuts({QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Tab),
+                              QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Backtab)});
+    view->addAction(tr("Modo editor"), this, [this] { setMode(ModeSwitch::Editor); });
+    view->addAction(tr("Modo Git"), this, [this] { setMode(ModeSwitch::Git); });
     view->addSeparator();
     QAction *sidebar = view->addAction(tr("Barra lateral"));
     sidebar->setCheckable(true);
@@ -1298,7 +1313,7 @@ void MainWindow::showShortcuts()
     const QString html = tr(R"(
 <h3>Atajos de BatCode</h3>
 <table cellspacing="4">
-<tr><td><b>Ctrl+Shift+E / Ctrl+Shift+G</b></td><td>Modo editor / Modo Git</td></tr>
+<tr><td><b>Ctrl+Shift+Tab</b></td><td>Cambiar entre modo editor y modo Git</td></tr>
 <tr><td><b>Ctrl+P</b></td><td>Ir a archivo</td></tr>
 <tr><td><b>Ctrl+G</b></td><td>Ir a línea</td></tr>
 <tr><td><b>Ctrl+F / Ctrl+H</b></td><td>Buscar / Reemplazar (Alt+Enter: un cursor por coincidencia)</td></tr>
@@ -1312,6 +1327,7 @@ void MainWindow::showShortcuts()
 <tr><td><b>Esc</b></td><td>Volver a un solo cursor</td></tr>
 <tr><td><b>Ctrl+/</b></td><td>Comentar / descomentar</td></tr>
 <tr><td><b>Ctrl+rueda del ratón</b></td><td>Aumentar / reducir el tamaño de la fuente</td></tr>
+<tr><td><b>Ctrl+Tab / Ctrl+RePág</b></td><td>Pestaña siguiente / anterior (en el modo Git, entre repositorios)</td></tr>
 <tr><td><b>Ctrl+Shift+D</b></td><td>Duplicar líneas</td></tr>
 <tr><td><b>Ctrl+Shift+↑ / ↓</b></td><td>Mover la línea o las líneas seleccionadas arriba / abajo</td></tr>
 <tr><td><b>Tab / Shift+Tab</b></td><td>Sangrar / quitar sangría</td></tr>

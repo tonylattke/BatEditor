@@ -22,6 +22,7 @@ public:
     QString currentRepositoryPath() const;
     void setCurrentRepository(const QString &path);
     void closeCurrent();
+    void switchRepository(int step);   // Ctrl+Tab / Ctrl+Shift+Tab: pestaña siguiente / anterior (circular)
     RepositoryView *currentView() const;
 
 public Q_SLOTS:

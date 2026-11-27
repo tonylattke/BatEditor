@@ -8,7 +8,7 @@ editar con cursores múltiples y, en el modo Git, revisar el historial y los dif
 > modernos, sin código ni recursos de ninguna otra aplicación.
 
 BatCode tiene **dos modos**. Se cambia de uno a otro con el interruptor **[ ✎ Editor | ⎇ Git ]**
-de la esquina superior derecha, o con `Ctrl+Shift+E` y `Ctrl+Shift+G`.
+de la esquina superior derecha, o con `Ctrl+Shift+Tab` (alterna entre los dos).
 
 | Modo editor | Modo Git |
 |---|---|
@@ -111,6 +111,8 @@ archivos abiertos.
   en la misma carpeta se llaman «nombre - copia»; al mover, las pestañas abiertas siguen al archivo.
 - `Ctrl` + rueda del ratón (o `Ctrl+=` / `Ctrl+-`): cambiar el tamaño de la fuente del editor;
   se aplica a todas las pestañas y se recuerda al reiniciar.
+- `Ctrl+Tab` (o `Ctrl+AvPág`) / `Ctrl+RePág`: pestaña siguiente / anterior.
+  En el modo Git cambian entre las pestañas de los repositorios abiertos.
 - `Ctrl+P`: ir a archivo con búsqueda difusa. `Ctrl+G`: ir a línea.
 - Barra de estado con línea y columna, número de cursores, sangría y lenguaje.
 - Respeta los finales de línea CRLF/LF de cada archivo y guarda de forma atómica.

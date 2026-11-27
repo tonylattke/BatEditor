@@ -195,6 +195,16 @@ void GitWorkspace::closeCurrent()
         Q_EMIT m_tabs->tabCloseRequested(m_tabs->currentIndex());
 }
 
+void GitWorkspace::switchRepository(int step)
+{
+    const int count = m_tabs->count();
+    if (count < 2)
+        return;
+    const int index = ((m_tabs->currentIndex() + step) % count + count) % count;
+    m_tabs->setCurrentIndex(index);
+    m_tabs->currentWidget()->setFocus();
+}
+
 void GitWorkspace::refreshCurrent()
 {
     if (RepositoryView *v = viewAt(m_tabs->currentIndex()))
