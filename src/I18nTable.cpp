@@ -558,6 +558,8 @@ extern const char *const kSpanishToEnglish[][2] = {
      "Show line numbers"},
     {"Mostrar el minimapa",
      "Show the minimap"},
+    {"Cerrar automáticamente paréntesis, comillas y etiquetas",
+     "Auto-close brackets, quotes and tags"},
     {"Tamaño de fuente",
      "Font size"},
     {"Sangría",

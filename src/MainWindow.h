@@ -124,6 +124,7 @@ private:
     bool m_wordWrap = false;
     bool m_showLineNumbers = true;
     bool m_showMinimap = true;
+    bool m_autoClose = true;   // cerrar (), [], {}, comillas y etiquetas al escribir
     QAction *m_minimapAction = nullptr;
     QAction *m_wrapAction = nullptr;
     FindInFilesPanel *m_findPanel = nullptr;

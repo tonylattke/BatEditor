@@ -643,6 +643,7 @@ EN = {
     'Abrir en terminal': 'Open in terminal',
     'Abre una terminal en la carpeta del repositorio': 'Opens a terminal in the repository folder',
     'Cambiar de modo (Editor / Git)': 'Switch Mode (Editor / Git)',
+    'Cerrar automáticamente paréntesis, comillas y etiquetas': 'Auto-close brackets, quotes and tags',
 }
 
 # Tabla de atajos (HTML): se traduce por frases

@@ -282,6 +282,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_indentWidth = settings.value(QStringLiteral("editor/indentWidth"), 4).toInt();
     m_showLineNumbers = settings.value(QStringLiteral("editor/lineNumbers"), true).toBool();
     m_showMinimap = settings.value(QStringLiteral("editor/minimap"), true).toBool();
+    m_autoClose = settings.value(QStringLiteral("editor/autoClose"), true).toBool();
 
     m_git = new GitWorkspace(this);
     connect(m_git, &GitWorkspace::openFileRequested, this, [this](const QString &p) {
@@ -1421,6 +1422,7 @@ void MainWindow::applyEditorSettings(EditorTab *only)
         e->setIndentWidth(m_indentWidth);
         e->setShowLineNumbers(m_showLineNumbers);
         e->setShowMinimap(m_showMinimap);
+        e->setAutoCloseEnabled(m_autoClose);
         e->setLineWrapMode(m_wordWrap ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
     };
     if (only) {
@@ -1451,6 +1453,7 @@ void MainWindow::showPreferences()
     current.wordWrap = m_wordWrap;
     current.lineNumbers = m_showLineNumbers;
     current.minimap = m_showMinimap;
+    current.autoClose = m_autoClose;
     current.pullCommand = settings.value(QStringLiteral("git/pullCommand"), QStringLiteral("pull")).toString();
     current.pushCommand = settings.value(QStringLiteral("git/pushCommand"), QStringLiteral("push")).toString();
 
@@ -1464,12 +1467,14 @@ void MainWindow::showPreferences()
     m_wordWrap = v.wordWrap;
     m_showLineNumbers = v.lineNumbers;
     m_showMinimap = v.minimap;
+    m_autoClose = v.autoClose;
     applyEditorSettings();
     settings.setValue(QStringLiteral("editor/pointSize"), m_fontSize);
     settings.setValue(QStringLiteral("editor/indentWidth"), m_indentWidth);
     settings.setValue(QStringLiteral("editor/wordWrap"), m_wordWrap);
     settings.setValue(QStringLiteral("editor/lineNumbers"), m_showLineNumbers);
     settings.setValue(QStringLiteral("editor/minimap"), m_showMinimap);
+    settings.setValue(QStringLiteral("editor/autoClose"), m_autoClose);
     settings.setValue(QStringLiteral("git/pullCommand"), v.pullCommand);
     settings.setValue(QStringLiteral("git/pushCommand"), v.pushCommand);
     m_git->refreshCurrent(); // actualiza los textos de ayuda de los botones Pull/Push

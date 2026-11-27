@@ -20,6 +20,7 @@ public:
         bool wordWrap = false;
         bool lineNumbers = true;
         bool minimap = true;
+        bool autoClose = true;
         QString pullCommand = QStringLiteral("pull");
         QString pushCommand = QStringLiteral("push");
     };
@@ -34,6 +35,7 @@ private:
     QCheckBox *m_wordWrap;
     QCheckBox *m_lineNumbers;
     QCheckBox *m_minimap;
+    QCheckBox *m_autoClose;
     QComboBox *m_pull;
     QComboBox *m_push;
 };

@@ -401,6 +401,7 @@ void EditorTab::applyLanguage(const QString &firstLine)
         if (lang.name != sh->language().name)
             sh->setLanguage(lang);
         m_editor->setLineCommentToken(lang.lineComment.isEmpty() ? QStringLiteral("#") : lang.lineComment);
+        m_editor->setAutoPairs(autoPairsFor(lang), lang.name == QLatin1String("HTML / XML"));
     }
     updatePreviewButton();
 }
@@ -620,4 +621,21 @@ bool EditorTab::eventFilter(QObject *watched, QEvent *event)
         }
     }
     return QWidget::eventFilter(watched, event);
+}
+
+// Parejas que se cierran solas según el lenguaje: paréntesis, corchetes y llaves
+// siempre; comillas las del lenguaje (en texto y Markdown solo las dobles y `,
+// para no molestar con los apóstrofos; en Rust la ' es de lifetimes)
+QString EditorTab::autoPairsFor(const LanguageDefinition &lang)
+{
+    QString pairs = QStringLiteral("()[]{}");
+    QString quotes = lang.stringDelimiters;
+    if (lang.name == Languages::plainText().name || lang.name == QLatin1String("Markdown"))
+        quotes = QStringLiteral("\"`");
+    if (lang.name == QLatin1String("Rust"))
+        quotes.remove(QLatin1Char('\''));
+    for (const QChar q : quotes)
+        if (!pairs.contains(q))
+            pairs += QString(q) + q;
+    return pairs;
 }

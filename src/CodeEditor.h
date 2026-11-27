@@ -25,6 +25,11 @@ public:
     void setIndentWidth(int spaces);
     int indentWidth() const { return m_indentWidth; }
     void setLineCommentToken(const QString &token) { m_lineComment = token; }
+    // Cierre automático: `pairs` son parejas apertura/cierre seguidas ("()[]{}\"\"''"),
+    // closeTags cierra etiquetas HTML/XML al escribir '>'
+    void setAutoPairs(const QString &pairs, bool closeTags);
+    void setAutoCloseEnabled(bool enabled) { m_autoClose = enabled; }
+    bool autoCloseEnabled() const { return m_autoClose; }
     void setShowLineNumbers(bool show);
     void setShowMinimap(bool show);                 // miniatura del archivo a la derecha
     bool showMinimap() const { return m_showMinimap; }
@@ -98,6 +103,11 @@ private:
     QList<int> selectedBlockNumbers() const;
 
     void insertNewline(QTextCursor &c) const;
+    // Escribe `text` aplicando el cierre automático (parejas, saltar el cierre, envolver la selección)
+    void typeText(QTextCursor &c, const QString &text) const;
+    QChar closerFor(QChar opener) const;
+    bool isCloser(QChar ch) const;
+    void closeHtmlTag(QTextCursor &c) const;
     void smartBackspace(QTextCursor &c, bool word) const;
     QString indentUnit() const { return QString(m_indentWidth, QLatin1Char(' ')); }
 
@@ -120,5 +130,8 @@ private:
     bool m_searchCaseSensitive = false;
     QList<QTextCursor> m_searchMatches;
     QList<QTextCursor> m_persistentHighlights;
+    QString m_autoPairs = QStringLiteral("()[]{}\"\"''");
+    bool m_autoCloseTags = false;
+    bool m_autoClose = true;
     int m_zoomWheelDelta = 0;   // giro acumulado de Ctrl+rueda (touchpads envían pasos pequeños)
 };

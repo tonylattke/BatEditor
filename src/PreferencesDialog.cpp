@@ -68,11 +68,14 @@ PreferencesDialog::PreferencesDialog(const Values &values, QWidget *parent)
     m_lineNumbers->setChecked(values.lineNumbers);
     m_minimap = new QCheckBox(tr("Mostrar el minimapa"), editorBox);
     m_minimap->setChecked(values.minimap);
+    m_autoClose = new QCheckBox(tr("Cerrar automáticamente paréntesis, comillas y etiquetas"), editorBox);
+    m_autoClose->setChecked(values.autoClose);
     editor->addRow(tr("Tamaño de fuente"), m_fontSize);
     editor->addRow(tr("Sangría"), m_indent);
     editor->addRow(QString(), m_wordWrap);
     editor->addRow(QString(), m_lineNumbers);
     editor->addRow(QString(), m_minimap);
+    editor->addRow(QString(), m_autoClose);
 
     // --- Git ---
     QFormLayout *git = nullptr;
@@ -110,6 +113,7 @@ PreferencesDialog::Values PreferencesDialog::values() const
     v.wordWrap = m_wordWrap->isChecked();
     v.lineNumbers = m_lineNumbers->isChecked();
     v.minimap = m_minimap->isChecked();
+    v.autoClose = m_autoClose->isChecked();
     v.pullCommand = m_pull->currentData().toString();
     v.pushCommand = m_push->currentData().toString();
     return v;

@@ -5,6 +5,8 @@
 #include <QDateTime>
 #include <QWidget>
 
+struct LanguageDefinition;
+
 class CodeEditor;
 class FindBar;
 class QStackedWidget;
@@ -77,6 +79,7 @@ private:
     void refreshPreview();
     void applyLanguage(const QString &firstLine);   // la primera línea sirve para el shebang
     void applyLanguage();
+    static QString autoPairsFor(const LanguageDefinition &lang);
     static bool readText(const QString &path, QString *text, QByteArray *bytes, QString *error);
     void rememberDisk(const QByteArray &bytes);
 

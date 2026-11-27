@@ -113,6 +113,12 @@ archivos abiertos.
   se aplica a todas las pestañas y se recuerda al reiniciar.
 - `Ctrl+Tab` (o `Ctrl+AvPág`) / `Ctrl+RePág`: pestaña siguiente / anterior.
   En el modo Git cambian entre las pestañas de los repositorios abiertos.
+- **Cierre automático** según el lenguaje: al escribir `(`, `[` o `{` se añade el cierre y el cursor
+  queda dentro; también las comillas del lenguaje (en texto y Markdown solo `"` y `` ` ``, para no
+  molestar con los apóstrofos). Con texto seleccionado lo envuelve; si escribes el cierre que ya está
+  delante, se salta; `Backspace` entre una pareja vacía borra las dos; `Enter` entre `{}` deja el
+  cursor en una línea sangrada. En HTML/XML, al escribir `>` de `<div>` se añade `</div>`.
+  Se desactiva en Archivo › Preferencias.
 - `Ctrl+P`: ir a archivo con búsqueda difusa. `Ctrl+G`: ir a línea.
 - Barra de estado con línea y columna, número de cursores, sangría y lenguaje.
 - Respeta los finales de línea CRLF/LF de cada archivo y guarda de forma atómica.

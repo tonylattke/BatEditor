@@ -7,6 +7,7 @@
 #include <QClipboard>
 #include <QKeyEvent>
 #include <QPainter>
+#include <QRegularExpression>
 #include <QWheelEvent>
 #include <QScrollBar>
 #include <QTextBlock>
@@ -24,7 +25,7 @@ public:
     QSize sizeHint() const override { return {m_editor->lineNumberAreaWidth(), 0}; }
 
 protected:
-    void paintEvent(QPaintEvent *event) override { m_editor->lineNumberAreaPaintEvent(event); }
+    void paintEvent(QPaintEvent *event) override { m_editor->lineNumberAreaPaintEvent(event);}
 
 private:
     CodeEditor *m_editor;
@@ -706,6 +707,17 @@ void CodeEditor::smartBackspace(QTextCursor &c, bool word) const
         return;
     }
     const QString before = c.block().text().left(c.positionInBlock());
+    if (m_autoClose && !before.isEmpty()) {
+        const QString line = c.block().text();
+        const int col = c.positionInBlock();
+        const QChar closer = closerFor(before.back());
+        if (!closer.isNull() && col < line.size() && line.at(col) == closer) {
+            c.movePosition(QTextCursor::Left);
+            c.movePosition(QTextCursor::Right, QTextCursor::KeepAnchor, 2);
+            c.removeSelectedText();
+            return;
+        }
+    }
     if (!before.isEmpty() && before.trimmed().isEmpty() && !before.contains(QLatin1Char('\t'))) {
         // Dentro de la sangría: retrocede hasta la tabulación anterior
         const int remove = ((before.size() - 1) % m_indentWidth) + 1;
@@ -991,6 +1003,17 @@ void CodeEditor::keyPressEvent(QKeyEvent *e)
     default:
         break;
     }
+    // Texto normal con cierre automático (Ctrl+Alt se permite: AltGr en Windows)
+    const QString text = e->text();
+    const bool plainCtrl = (mods & Qt::ControlModifier) && !(mods & Qt::AltModifier);
+    if (m_autoClose && text.size() == 1 && text.at(0).isPrint() && !plainCtrl) {
+        c.beginEditBlock();
+        typeText(c, text);
+        c.endEditBlock();
+        setTextCursor(c);
+        ensureCursorVisible();
+        return;
+    }
     QPlainTextEdit::keyPressEvent(e);
 }
 
@@ -1076,7 +1099,7 @@ bool CodeEditor::handleMultiCursorKey(QKeyEvent *e)
     const QString text = e->text();
     const bool plainCtrl = ctrl && !alt;
     if (!text.isEmpty() && !plainCtrl && text.at(0).isPrint()) {
-        applyToAllCursors([&text](QTextCursor &c) { c.insertText(text); });
+        applyToAllCursors([this, &text](QTextCursor &c) { typeText(c, text); });
         return true;
     }
     return false;
@@ -1248,4 +1271,135 @@ bool CodeEditor::selectAllMatches()
     setCursors(main, found);
     setFocus();
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Cierre automático de paréntesis, corchetes, llaves, comillas y etiquetas
+// ---------------------------------------------------------------------------
+void CodeEditor::setAutoPairs(const QString &pairs, bool closeTags)
+{
+    m_autoPairs = pairs;
+    m_autoCloseTags = closeTags;
+}
+
+QChar CodeEditor::closerFor(QChar opener) const
+{
+    for (int i = 0; i + 1 < m_autoPairs.size(); i += 2)
+        if (m_autoPairs.at(i) == opener)
+            return m_autoPairs.at(i + 1);
+    return QChar();
+}
+
+bool CodeEditor::isCloser(QChar ch) const
+{
+    for (int i = 1; i < m_autoPairs.size(); i += 2)
+        if (m_autoPairs.at(i) == ch)
+            return true;
+    return false;
+}
+
+namespace {
+bool isWordChar(QChar c)
+{
+    return c.isLetterOrNumber() || c == QLatin1Char('_');
+}
+
+// ¿Hay un número impar de comillas `q` sin escapar antes de la columna? (estamos dentro de una cadena)
+bool insideString(const QString &before, QChar q)
+{
+    bool inside = false;
+    for (int i = 0; i < before.size(); ++i) {
+        if (before.at(i) == QLatin1Char('\\')) {
+            ++i;
+            continue;
+        }
+        if (before.at(i) == q)
+            inside = !inside;
+    }
+    return inside;
+}
+} // namespace
+
+void CodeEditor::typeText(QTextCursor &c, const QString &text) const
+{
+    if (!m_autoClose || text.size() != 1 || m_autoPairs.isEmpty()) {
+        c.insertText(text);
+        if (m_autoClose && m_autoCloseTags && text == QLatin1String(">"))
+            closeHtmlTag(c);
+        return;
+    }
+    const QChar ch = text.at(0);
+    const QChar closer = closerFor(ch);
+    const QString line = c.block().text();
+    const int col = c.positionInBlock();
+    const QChar prev = col > 0 ? line.at(col - 1) : QChar();
+    const QChar next = col < line.size() ? line.at(col) : QChar();
+    const bool isQuote = !closer.isNull() && closer == ch;
+
+    // 1) Con selección: envolverla ("texto" -> (texto)) y dejarla seleccionada
+    if (!closer.isNull() && c.hasSelection()) {
+        const int start = c.selectionStart();
+        const int end = c.selectionEnd();
+        const QString selected = c.selectedText();
+        c.beginEditBlock();
+        c.insertText(ch + selected + closer);
+        c.endEditBlock();
+        c.setPosition(start + 1);
+        c.setPosition(end + 1, QTextCursor::KeepAnchor);
+        return;
+    }
+
+    // 2) Escribir el cierre que ya está justo delante: se salta en vez de duplicarlo
+    if (!c.hasSelection() && next == ch && (isCloser(ch) || isQuote)) {
+        c.movePosition(QTextCursor::Right);
+        return;
+    }
+
+    // 3) Apertura: se inserta la pareja si delante no hay texto pegado
+    if (!closer.isNull() && !c.hasSelection()) {
+        const bool nextAllows = next.isNull() || next.isSpace() || isCloser(next)
+            || QStringLiteral(",;:").contains(next);
+        bool pair = nextAllows;
+        if (isQuote) {
+            // No en palabras ("don't"), tras una barra de escape ni para cerrar una cadena abierta
+            if (isWordChar(prev) || prev == QLatin1Char('\\') || insideString(line.left(col), ch))
+                pair = false;
+        }
+        if (pair) {
+            c.beginEditBlock();
+            c.insertText(QString(ch) + closer);
+            c.endEditBlock();
+            c.movePosition(QTextCursor::Left);
+            return;
+        }
+    }
+    c.insertText(text);
+    if (m_autoCloseTags && ch == QLatin1Char('>'))
+        closeHtmlTag(c);
+}
+
+// HTML/XML: al escribir '>' de "<div class='x'>" añade "</div>" detrás del cursor
+void CodeEditor::closeHtmlTag(QTextCursor &c) const
+{
+    static const QStringList voidTags = {
+        QStringLiteral("area"), QStringLiteral("base"),  QStringLiteral("br"),    QStringLiteral("col"),
+        QStringLiteral("embed"), QStringLiteral("hr"),   QStringLiteral("img"),   QStringLiteral("input"),
+        QStringLiteral("link"), QStringLiteral("meta"),  QStringLiteral("param"), QStringLiteral("source"),
+        QStringLiteral("track"), QStringLiteral("wbr")};
+    const QString before = c.block().text().left(c.positionInBlock());   // termina en '>'
+    if (before.endsWith(QLatin1String("/>")) || before.endsWith(QLatin1String("->")))
+        return;
+    static const QRegularExpression openTag(QStringLiteral("<([A-Za-z][\\w:.-]*)(?:\\s[^<>]*)?>$"));
+    const QRegularExpressionMatch m = openTag.match(before);
+    if (!m.hasMatch())
+        return;
+    const QString tag = m.captured(1);
+    if (voidTags.contains(tag.toLower()))
+        return;
+    const QString after = c.block().text().mid(c.positionInBlock());
+    if (after.startsWith(QStringLiteral("</") + tag))
+        return;
+    const int pos = c.position();
+    c.insertText(QStringLiteral("</%1>").arg(tag));
+    c.setPosition(pos);
 }
