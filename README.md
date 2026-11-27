@@ -123,7 +123,8 @@ archivos abiertos.
 
 Cada repositorio abierto es una **pestaña** (botón **+** para abrir otro). Al abrir una carpeta en
 el modo editor, si es un repositorio, también se añade aquí. Cada repositorio tiene una barra
-superior con la rama actual, «Abrir en el editor» y «Actualizar» (`F5`), y **tres secciones**:
+superior con la rama actual, «Abrir en terminal» (abre una terminal en la carpeta del
+repositorio; también en el clic derecho de su pestaña), «Abrir en el editor» y «Actualizar» (`F5`), y **tres secciones**:
 
 1. **Ubicaciones**: ramas, remotos, etiquetas, stashes, submódulos y worktrees, con su número.
    - Las ramas locales y remotas se ordenan y se agrupan en carpetas según el prefijo con `/`

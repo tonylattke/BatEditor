@@ -368,6 +368,11 @@ void RepositoryView::buildUi()
     openInEditor->setToolTip(tr("Abre la carpeta del repositorio en el modo editor"));
     connect(openInEditor, &QToolButton::clicked, this, [this] { Q_EMIT openFolderRequested(m_repo.workdir()); });
 
+    auto *openInTerminal = new QToolButton(this);
+    openInTerminal->setText(tr("Abrir en terminal"));
+    openInTerminal->setToolTip(tr("Abre una terminal en la carpeta del repositorio"));
+    connect(openInTerminal, &QToolButton::clicked, this, [this] { Q_EMIT openTerminalRequested(m_repo.workdir()); });
+
     auto *refresh = new QToolButton(this);
     refresh->setText(QStringLiteral("⟳"));
     refresh->setToolTip(tr("Actualizar (F5)"));
@@ -386,6 +391,7 @@ void RepositoryView::buildUi()
     tl->addStretch(1);
     tl->addWidget(m_branchLabel);
     tl->addStretch(1);
+    tl->addWidget(openInTerminal);
     tl->addWidget(openInEditor);
     tl->addWidget(refresh);
     tl->addSpacing(12);

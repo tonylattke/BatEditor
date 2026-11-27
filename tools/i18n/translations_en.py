@@ -640,6 +640,8 @@ EN = {
     'git apply falló (código %1)': 'git apply failed (code %1)',
     'Mover a una ventana nueva': 'Move to New Window',
     'Mover a la ventana «%1»': 'Move to Window "%1"',
+    'Abrir en terminal': 'Open in terminal',
+    'Abre una terminal en la carpeta del repositorio': 'Opens a terminal in the repository folder',
 }
 
 # Tabla de atajos (HTML): se traduce por frases

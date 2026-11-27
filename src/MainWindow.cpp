@@ -288,6 +288,7 @@ MainWindow::MainWindow(QWidget *parent)
         setMode(ModeSwitch::Editor);
         openFile(p);
     });
+    connect(m_git, &GitWorkspace::openTerminalRequested, this, &MainWindow::openTerminal);
     connect(m_git, &GitWorkspace::openFolderRequested, this, [this](const QString &p) {
         openFolder(p);
         setMode(ModeSwitch::Editor);
@@ -2044,7 +2045,8 @@ void MainWindow::runScript(const QString &path)
 
 void MainWindow::openTerminal(const QString &directory)
 {
-    const QString dir = QDir::toNativeSeparators(QFileInfo(directory).absoluteFilePath());
+    // cleanPath quita la barra final ("F:/Repo/" -> "F:/Repo"), que rompería las comillas en Windows
+    const QString dir = QDir::toNativeSeparators(QDir::cleanPath(QFileInfo(directory).absoluteFilePath()));
     bool started = false;
 #ifdef Q_OS_WIN
     // Windows Terminal si está instalado; si no, cmd en una consola nueva

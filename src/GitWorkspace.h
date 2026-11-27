@@ -33,6 +33,7 @@ public Q_SLOTS:
 Q_SIGNALS:
     void openFileRequested(const QString &absolutePath);
     void openFolderRequested(const QString &absolutePath);
+    void openTerminalRequested(const QString &absolutePath);
     void statusMessage(const QString &message);
     void repositoriesChanged();
 

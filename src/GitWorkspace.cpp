@@ -73,6 +73,7 @@ GitWorkspace::GitWorkspace(QWidget *parent)
             QGuiApplication::clipboard()->setText(QDir::toNativeSeparators(path));
         });
         menu->addAction(tr("Abrir en el editor"), this, [this, path] { Q_EMIT openFolderRequested(path); });
+        menu->addAction(tr("Abrir en terminal"), this, [this, path] { Q_EMIT openTerminalRequested(path); });
         menu->addAction(tr("Abrir en el explorador"), this,
                         [path] { QDesktopServices::openUrl(QUrl::fromLocalFile(path)); });
     });
@@ -147,6 +148,7 @@ bool GitWorkspace::openRepository(const QString &path, bool activate, QString *e
     }
     connect(view, &RepositoryView::openFileRequested, this, &GitWorkspace::openFileRequested);
     connect(view, &RepositoryView::openFolderRequested, this, &GitWorkspace::openFolderRequested);
+    connect(view, &RepositoryView::openTerminalRequested, this, &GitWorkspace::openTerminalRequested);
     connect(view, &RepositoryView::openRepositoryRequested, this, [this](const QString &repoPath) {
         QString error;
         if (!openRepository(repoPath, true, &error))
